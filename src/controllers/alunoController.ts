@@ -3,46 +3,71 @@ import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
 import { withTenancy, withEscolaId } from '../utils/prismaHelpers'
 
+// ============================================
+// CONTROLLER - ALUNOS
+// ============================================
+
 export const alunoController = {
-  // GET /alunos - Listar com filtros
+  /**
+   * GET /alunos - Listar com filtros e paginação
+   */
   async list(req: Request, res: Response) {
-    const { page = 1, limit = 20, turmaId, turno, busca } = req.query
+    const { 
+      page = 1, 
+      limit = 20, 
+      turmaId, 
+      turno, 
+      busca 
+    } = req.query
 
     const skip = (Number(page) - 1) * Number(limit)
 
-    // Construir filtros base
+    // Construir filtros
     let where: any = {}
     
     if (turmaId) where.turmaId = turmaId
     if (turno) where.turno = turno
+    
+    // Busca por nome ou matrícula
     if (busca) {
-      where.nome = {
-        contains: busca as string,
-        mode: 'insensitive',
-      }
+      where.OR = [
+        {
+          nome: {
+            contains: busca as string,
+            mode: 'insensitive',
+          },
+        },
+        {
+          numeroMatricula: {
+            contains: busca as string,
+            mode: 'insensitive',
+          },
+        },
+      ]
     }
 
-    // Adiciona escolaId + deletedAt: null automaticamente
+    // Aplicar multi-tenancy e soft delete
     where = withTenancy(where)
 
+    // Buscar alunos + contagem total
     const [alunos, total] = await Promise.all([
       prisma.aluno.findMany({
         where,
         skip,
         take: Number(limit),
-        include: {
+        select: {
+          id: true,
+          nome: true,
+          cpf: true,
+          dataNascimento: true,
+          numeroMatricula: true,
+          turno: true,
+          createdAt: true,
           turma: {
             select: {
               id: true,
               nome: true,
-            },
-          },
-          responsaveis: {
-            select: {
-              id: true,
-              nome: true,
-              tipo: true,
-              isResponsavelFinanceiro: true,
+              serie: true,
             },
           },
           _count: {
@@ -70,7 +95,9 @@ export const alunoController = {
     })
   },
 
-  // GET /alunos/:id - Detalhe
+  /**
+   * GET /alunos/:id - Buscar por ID
+   */
   async show(req: Request, res: Response) {
     const { id } = req.params
 
@@ -78,26 +105,25 @@ export const alunoController = {
       where: withTenancy({ id }),
       include: {
         turma: true,
-        responsaveis: {
-          include: {
-            endereco: true,
-          },
-        },
         endereco: true,
-        contrato: {
-          include: {
-            responsavelFinanceiro: true,
+        responsaveis: {
+          select: {
+            id: true,
+            nome: true,
+            tipo: true,
+            telefone: true,
+            email: true,
+            isResponsavelFinanceiro: true,
           },
         },
-        pagamentos: {
-          where: {
-            status: {
-              in: ['PENDENTE', 'VENCIDO'],
-            },
-          },
-          take: 5,
-          orderBy: {
-            dataVencimento: 'asc',
+        contrato: {
+          select: {
+            id: true,
+            valorMensalidade: true,
+            diaVencimento: true,
+            dataInicio: true,
+            dataFim: true,
+            status: true,
           },
         },
         _count: {
@@ -105,6 +131,7 @@ export const alunoController = {
             responsaveis: true,
             pagamentos: true,
             notas: true,
+            atividadesExtra: true,
           },
         },
       },
@@ -117,34 +144,78 @@ export const alunoController = {
     return res.json(aluno)
   },
 
-  // POST /alunos - Criar
+  /**
+   * POST /alunos - Criar novo aluno
+   */
   async create(req: Request, res: Response) {
     const dados = req.body
-    const escolaId = require('../utils/context').getEscolaId()
+    const escolaId = req.user?.escolaId
 
     if (!escolaId) {
       throw new AppError('Escola não identificada', 400)
     }
 
+    // Verificar se número de matrícula já existe
+    const matriculaExiste = await prisma.aluno.findFirst({
+      where: withEscolaId({
+        numeroMatricula: dados.numeroMatricula,
+      }),
+    })
+
+    if (matriculaExiste) {
+      throw new AppError('Número de matrícula já está em uso', 400)
+    }
+
+    // Se forneceu turmaId, verificar se existe e pertence à escola
+    if (dados.turmaId) {
+      const turma = await prisma.turma.findFirst({
+        where: withEscolaId({ id: dados.turmaId }),
+      })
+
+      if (!turma) {
+        throw new AppError('Turma não encontrada', 404)
+      }
+    }
+
+    // Converter dataNascimento para DateTime se fornecido
+    if (dados.dataNascimento) {
+      // Se vier como YYYY-MM-DD, converte para ISO
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dados.dataNascimento)) {
+        dados.dataNascimento = new Date(dados.dataNascimento).toISOString()
+      }
+    }
+
+    // Criar aluno
     const aluno = await prisma.aluno.create({
       data: {
         ...dados,
-        escolaId, // Adiciona manualmente
+        escolaId,
+        dataNascimento: dados.dataNascimento 
+          ? new Date(dados.dataNascimento) 
+          : undefined,
       },
       include: {
-        turma: true,
+        turma: {
+          select: {
+            id: true,
+            nome: true,
+            serie: true,
+          },
+        },
       },
     })
 
     return res.status(201).json(aluno)
   },
 
-  // PUT /alunos/:id - Atualizar
+  /**
+   * PUT /alunos/:id - Atualizar aluno
+   */
   async update(req: Request, res: Response) {
     const { id } = req.params
     const dados = req.body
 
-    // Verifica se aluno existe e pertence à escola
+    // Verificar se aluno existe e pertence à escola
     const alunoExistente = await prisma.aluno.findFirst({
       where: withTenancy({ id }),
     })
@@ -153,35 +224,82 @@ export const alunoController = {
       throw new AppError('Aluno não encontrado', 404)
     }
 
+    // Se está alterando número de matrícula, verificar duplicação
+    if (dados.numeroMatricula && dados.numeroMatricula !== alunoExistente.numeroMatricula) {
+      const matriculaEmUso = await prisma.aluno.findFirst({
+        where: withEscolaId({
+          numeroMatricula: dados.numeroMatricula,
+          id: { not: id },
+        }),
+      })
+
+      if (matriculaEmUso) {
+        throw new AppError('Número de matrícula já está em uso', 400)
+      }
+    }
+
+    // Se está vinculando a uma turma, verificar se existe
+    if (dados.turmaId) {
+      const turma = await prisma.turma.findFirst({
+        where: withEscolaId({ id: dados.turmaId }),
+      })
+
+      if (!turma) {
+        throw new AppError('Turma não encontrada', 404)
+      }
+    }
+
+    // Converter dataNascimento se fornecido
+    if (dados.dataNascimento) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dados.dataNascimento)) {
+        dados.dataNascimento = new Date(dados.dataNascimento).toISOString()
+      }
+    }
+
+    // Atualizar
     const aluno = await prisma.aluno.update({
       where: { id },
-      data: dados,
+      data: {
+        ...dados,
+        dataNascimento: dados.dataNascimento 
+          ? new Date(dados.dataNascimento) 
+          : undefined,
+      },
       include: {
-        turma: true,
-        responsaveis: true,
+        turma: {
+          select: {
+            id: true,
+            nome: true,
+            serie: true,
+          },
+        },
       },
     })
 
     return res.json(aluno)
   },
 
-  // DELETE /alunos/:id - Soft Delete
+  /**
+   * DELETE /alunos/:id - Soft delete
+   */
   async delete(req: Request, res: Response) {
     const { id } = req.params
 
-    // Verifica se aluno existe e pertence à escola
-    const alunoExistente = await prisma.aluno.findFirst({
+    // Verificar se aluno existe e pertence à escola
+    const aluno = await prisma.aluno.findFirst({
       where: withTenancy({ id }),
     })
 
-    if (!alunoExistente) {
+    if (!aluno) {
       throw new AppError('Aluno não encontrado', 404)
     }
 
-    // Soft delete manual
+    // Soft delete
     await prisma.aluno.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { 
+        deletedAt: new Date(),
+      },
     })
 
     return res.status(204).send()

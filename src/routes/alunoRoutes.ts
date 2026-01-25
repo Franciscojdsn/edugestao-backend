@@ -7,51 +7,72 @@ import {
   criarAlunoSchema,
   atualizarAlunoSchema,
   listarAlunosSchema,
+  idAlunoSchema,
 } from '../schemas/alunoSchemas'
-import { idParamSchema } from '../schemas/escolaSchemas'
 
 const router = Router()
+
+// ============================================
+// MIDDLEWARES GLOBAIS
+// ============================================
 
 // 1. Autenticação (todas as rotas)
 router.use(authMiddleware)
 
-// 2. Contexto (todas as rotas)
+// 2. Contexto - injeta escolaId (todas as rotas)
 router.use(contextMiddleware)
 
-// Rotas com validação
+// ============================================
+// ROTAS
+// ============================================
 
-// GET /alunos - Listar (valida query params)
+/**
+ * GET /alunos
+ * Lista alunos com filtros e paginação
+ */
 router.get(
   '/',
   validate(listarAlunosSchema),
   alunoController.list
 )
 
-// GET /alunos/:id - Detalhe (valida ID)
+/**
+ * GET /alunos/:id
+ * Busca aluno por ID
+ */
 router.get(
   '/:id',
-  validate(idParamSchema),
+  validate(idAlunoSchema),
   alunoController.show
 )
 
-// POST /alunos - Criar (valida body)
+/**
+ * POST /alunos
+ * Cria novo aluno
+ */
 router.post(
   '/',
   validate(criarAlunoSchema),
   alunoController.create
 )
 
-// PUT /alunos/:id - Atualizar (valida params + body)
+/**
+ * PUT /alunos/:id
+ * Atualiza aluno
+ */
 router.put(
   '/:id',
   validate(atualizarAlunoSchema),
   alunoController.update
 )
 
-// DELETE /alunos/:id - Deletar (valida ID)
+/**
+ * DELETE /alunos/:id
+ * Soft delete de aluno
+ */
 router.delete(
   '/:id',
-  validate(idParamSchema),
+  validate(idAlunoSchema),
   alunoController.delete
 )
 

@@ -2,10 +2,11 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { errorHandler } from './middlewares/errorHandler'
-// 1. Importa os roteadores específicos que você criou
 import { authRoutes } from './routes/authRoutes'
 import { escolaRoutes } from './routes/escolaRoutes'
-import { alunoRoutes } from './routes/alunoRoutes'
+import { alunoRoutes } from './routes/alunoRoutes'        
+import { turmaRoutes } from './routes/turmaRoutes'         
+import { funcionarioRoutes } from './routes/funcionarioRoutes' 
 
 dotenv.config()
 
@@ -22,21 +23,14 @@ app.get('/health', (req, res) => {
   })
 })
 
-// Exemplo de como as rotas assíncronas funcionam agora no Express 5:
-app.get('/teste-erro', async (req, res) => {
-  throw new Error("Erro assíncrono capturado nativamente pelo Express 5!")
-})
-
-// 2. Registra os roteadores no app principal, adicionando o prefixo '/auth' e '/escola'
-// Agora o caminho completo para login será http://localhost:3333/auth/login
+// Rotas
 app.use('/auth', authRoutes)
-// E para escola será http://localhost:3333/escola/...
 app.use('/escolas', escolaRoutes)
-// E para aluno será http://localhost:3333/alunos/...
-app.use('/alunos', alunoRoutes)
+app.use('/alunos', alunoRoutes)                 
+app.use('/turmas', turmaRoutes)                 
+app.use('/funcionarios', funcionarioRoutes)     
 
-
-// Middleware de erro (SEMPRE por último!)
+// Middleware de erro
 app.use(errorHandler)
 
 const PORT = process.env.PORT || 3333
