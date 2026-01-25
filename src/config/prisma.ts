@@ -3,7 +3,6 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
 import dotenv from 'dotenv'
 
-// ⭐ CARREGAR .env PRIMEIRO!
 dotenv.config()
 
 // Configuração do Pool PostgreSQL
@@ -13,6 +12,7 @@ const pool = new Pool({
 
 const adapter = new PrismaPg(pool)
 
+// Criar cliente Prisma (SEM middleware - Prisma 7 não suporta mais $use)
 export const prisma = new PrismaClient({ 
   adapter,
   log: process.env.NODE_ENV === 'development' 

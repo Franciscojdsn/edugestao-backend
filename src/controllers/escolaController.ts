@@ -5,7 +5,17 @@ import { AppError } from '../middlewares/errorHandler'
 export const escolaController = {
   // GET /escolas - Listar todas
   async list(req: Request, res: Response) {
-    const escolas = await prisma.escola.findMany({
+    // ⚠️ ESCOLA NÃO TEM escolaId! 
+    // Usuário só consegue ver a própria escola baseado no JWT
+    const escolaId = req.user?.escolaId
+
+    if (!escolaId) {
+      throw new AppError('Usuário não autenticado', 401)
+    }
+
+    // Retorna apenas a escola do usuário
+    const escola = await prisma.escola.findUnique({
+      where: { id: escolaId },
       select: {
         id: true,
         nome: true,
@@ -18,12 +28,23 @@ export const escolaController = {
       },
     })
 
-    return res.json(escolas)
+    if (!escola) {
+      throw new AppError('Escola não encontrada', 404)
+    }
+
+    // Retorna array com 1 escola (compatível com frontend)
+    return res.json([escola])
   },
 
   // GET /escolas/:id - Detalhe
   async show(req: Request, res: Response) {
     const { id } = req.params
+    const escolaId = req.user?.escolaId
+
+    // Verifica se o ID solicitado é da escola do usuário
+    if (id !== escolaId) {
+      throw new AppError('Acesso negado', 403)
+    }
 
     const escola = await prisma.escola.findUnique({
       where: { id },

@@ -4,13 +4,11 @@ import { authMiddleware } from '../middlewares/auth'
 
 const router = Router()
 
-// Todas as rotas protegidas por autenticação
+// Autenticação obrigatória
 router.use(authMiddleware)
 
-// GET /escolas
+// Rotas SEM validação (escola não precisa)
 router.get('/', escolaController.list)
-
-// GET /escolas/:id
 router.get('/:id', escolaController.show)
 
 export { router as escolaRoutes }

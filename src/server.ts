@@ -5,6 +5,7 @@ import { errorHandler } from './middlewares/errorHandler'
 // 1. Importa os roteadores específicos que você criou
 import { authRoutes } from './routes/authRoutes'
 import { escolaRoutes } from './routes/escolaRoutes'
+import { alunoRoutes } from './routes/alunoRoutes'
 
 dotenv.config()
 
@@ -30,7 +31,9 @@ app.get('/teste-erro', async (req, res) => {
 // Agora o caminho completo para login será http://localhost:3333/auth/login
 app.use('/auth', authRoutes)
 // E para escola será http://localhost:3333/escola/...
-app.use('/escolas', escolaRoutes) 
+app.use('/escolas', escolaRoutes)
+// E para aluno será http://localhost:3333/alunos/...
+app.use('/alunos', alunoRoutes)
 
 
 // Middleware de erro (SEMPRE por último!)
