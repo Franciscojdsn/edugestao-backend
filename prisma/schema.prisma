@@ -1,0 +1,581 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"  // ← ADICIONE AQUI
+}
+
+datasource db {
+  provider = "postgresql"
+  // NÃO coloque url aqui no Prisma 7+
+  // A URL vai no prisma.config.ts
+}
+
+// ============================================
+// 1. ESCOLA (Multi-tenancy)
+// ============================================
+model Escola {
+  id       String  @id @default(uuid())
+  nome     String
+  cnpj     String  @unique
+  telefone String?
+  email    String?
+  logo     String? // URL da logo
+
+  // Configurações padrão
+  mensalidadePadrao Decimal @default(0) @db.Decimal(10, 2)
+  diaVencimento     Int     @default(10) // Dia do mês para vencimento
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  usuarios        Usuario[]
+  alunos          Aluno[]
+  funcionarios    Funcionario[]
+  turmas          Turma[]
+  disciplinas     Disciplina[]
+  transacoes      Transacao[]
+  atividadesExtra AtividadeExtra[]
+
+  @@map("escolas")
+}
+
+// ============================================
+// 2. USUÁRIO (Autenticação)
+// ============================================
+model Usuario {
+  id    String      @id @default(uuid())
+  email String      @unique
+  senha String // Hash bcrypt
+  nome  String
+  role  RoleUsuario @default(SECRETARIA)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  histories History[]
+
+  @@index([escolaId])
+  @@map("usuarios")
+}
+
+enum RoleUsuario {
+  ADMIN // Dono da escola
+  SECRETARIA // Acesso total administrativo
+  PROFESSOR // Acesso a turmas e notas
+  FINANCEIRO // Acesso apenas financeiro
+}
+
+// ============================================
+// 3. ENDEREÇO (Compartilhado)
+// ============================================
+model Endereco {
+  id          String  @id @default(uuid())
+  rua         String
+  numero      String
+  complemento String?
+  bairro      String
+  cidade      String
+  estado      String  @db.Char(2)
+  cep         String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  alunos       Aluno[]
+  responsaveis Responsavel[]
+  funcionarios Funcionario[]
+
+  @@map("enderecos")
+}
+
+// ============================================
+// 4. ALUNO
+// ============================================
+model Aluno {
+  id             String    @id @default(uuid())
+  nome           String
+  cpf            String?   @unique
+  dataNascimento DateTime?
+  naturalidade   String?
+  genero         String?
+  foto           String? // URL da foto
+
+  // Dados de matrícula
+  numeroMatricula String   @unique
+  dataMatricula   DateTime @default(now())
+  turno           Turno?
+
+  // Relacionamentos
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  enderecoId String?
+  endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
+
+  turmaId String? // Aluno em APENAS 1 turma
+  turma   Turma?  @relation(fields: [turmaId], references: [id], onDelete: SetNull)
+
+  // Soft delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  responsaveis    Responsavel[]
+  contrato        Contrato?
+  pagamentos      Pagamento[]
+  notas           Nota[]
+  atividadesExtra AlunoAtividadeExtra[]
+
+  @@index([escolaId])
+  @@index([turmaId])
+  @@index([deletedAt])
+  @@map("alunos")
+}
+
+enum Turno {
+  MATUTINO
+  VESPERTINO
+  NOTURNO
+  INTEGRAL
+}
+
+// ============================================
+// 5. RESPONSÁVEL
+// ============================================
+model Responsavel {
+  id             String    @id @default(uuid())
+  nome           String
+  cpf            String?
+  rg             String?
+  dataNascimento DateTime?
+  telefone1      String?
+  telefone2      String?
+  email          String?
+
+  // Tipo de responsável
+  tipo                    TipoResponsavel
+  isResponsavelFinanceiro Boolean         @default(false)
+
+  // Relacionamentos
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  enderecoId String?
+  endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  contratos  Contrato[]
+  transacoes Transacao[]
+
+  @@index([alunoId])
+  @@map("responsaveis")
+}
+
+enum TipoResponsavel {
+  PAI
+  MAE
+  AVO
+  OUTRO
+}
+
+// ============================================
+// 6. CONTRATO (Condições Financeiras)
+// ============================================
+model Contrato {
+  id String @id @default(uuid())
+
+  // Valores
+  valorMensalidade Decimal   @db.Decimal(10, 2)
+  diaVencimento    Int       @default(10)
+  dataInicio       DateTime // A partir de quando cobrar
+  dataFim          DateTime? // Quando termina o contrato
+
+  // Descontos
+  temDesconto        Boolean  @default(false)
+  percentualDesconto Decimal? @db.Decimal(5, 2)
+  motivoDesconto     String?
+
+  ativo Boolean @default(true)
+
+  // Relacionamentos
+  alunoId String @unique // 1 aluno = 1 contrato ativo
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  responsavelFinanceiroId String
+  responsavelFinanceiro   Responsavel @relation(fields: [responsavelFinanceiroId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([alunoId])
+  @@map("contratos")
+}
+
+// ============================================
+// 7. ATIVIDADE EXTRA
+// ============================================
+model AtividadeExtra {
+  id        String  @id @default(uuid())
+  nome      String // Ex: "Futebol", "Inglês"
+  descricao String?
+  valor     Decimal @db.Decimal(10, 2)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  alunos AlunoAtividadeExtra[]
+
+  @@index([escolaId])
+  @@map("atividades_extra")
+}
+
+// Tabela intermediária N:N
+model AlunoAtividadeExtra {
+  id String @id @default(uuid())
+
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  atividadeExtraId String
+  atividadeExtra   AtividadeExtra @relation(fields: [atividadeExtraId], references: [id], onDelete: Cascade)
+
+  dataInicio DateTime  @default(now())
+  dataFim    DateTime?
+  ativo      Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([alunoId, atividadeExtraId])
+  @@index([alunoId])
+  @@index([atividadeExtraId])
+  @@map("alunos_atividades_extra")
+}
+
+// ============================================
+// 8. PAGAMENTO (Parcelas de Mensalidade)
+// ============================================
+model Pagamento {
+  id String @id @default(uuid())
+
+  // Identificação
+  referencia    String // Ex: "Janeiro/2026", "Fevereiro/2026"
+  mesReferencia Int // 1-12
+  anoReferencia Int // 2026
+
+  // Valores
+  valorBase       Decimal  @db.Decimal(10, 2) // Mensalidade
+  valorAtividades Decimal  @default(0) @db.Decimal(10, 2) // Soma das atividades extra
+  valorTotal      Decimal  @db.Decimal(10, 2) // Base + Atividades
+  valorPago       Decimal? @db.Decimal(10, 2) // Pode ter juros/multa
+
+  // Datas
+  dataVencimento DateTime
+  dataPagamento  DateTime?
+
+  // Status
+  status StatusPagamento @default(PENDENTE)
+
+  // Integração Asaas
+  asaasId   String? @unique // ID do pagamento no Asaas
+  boletoUrl String? // URL do boleto
+  pixQrCode String? // QR Code PIX
+
+  // Relacionamentos
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  transacaoId String?    @unique // Quando pago, gera transação
+  transacao   Transacao? @relation(fields: [transacaoId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([alunoId])
+  @@index([status])
+  @@index([dataVencimento])
+  @@map("pagamentos")
+}
+
+enum StatusPagamento {
+  PENDENTE
+  PAGO
+  VENCIDO
+  CANCELADO
+}
+
+// ============================================
+// 9. TRANSAÇÃO (Financeiro Unificado)
+// ============================================
+model Transacao {
+  id String @id @default(uuid())
+
+  tipo   TipoTransacao
+  motivo String // Ex: "Mensalidade - Janeiro", "Salário - Profª Maria"
+  valor  Decimal       @db.Decimal(10, 2)
+  data   DateTime      @default(now())
+
+  observacao String?
+
+  // Relacionamentos
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  responsavelId String? // Se for pagamento de mensalidade
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  funcionarioId String? // Se for pagamento de salário
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+
+  // Soft delete (importante para auditoria)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  pagamento Pagamento? // Relacionamento reverso
+  histories History[]
+
+  @@index([escolaId])
+  @@index([tipo])
+  @@index([data])
+  @@index([deletedAt])
+  @@map("transacoes")
+}
+
+enum TipoTransacao {
+  ENTRADA // Mensalidade, matrícula, extra
+  SAIDA // Salário, contas, despesas
+}
+
+// ============================================
+// 10. HISTORY (Auditoria de Transações)
+// ============================================
+model History {
+  id String @id @default(uuid())
+
+  tabela     String // "transacoes"
+  registroId String // ID da transação
+  acao       AcaoHistory // CREATE, UPDATE, DELETE
+
+  dadosAntes  Json? // Estado anterior (JSON)
+  dadosDepois Json? // Estado posterior (JSON)
+
+  // Quem fez
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  // Relacionamento opcional com transação
+  transacaoId String?
+  transacao   Transacao? @relation(fields: [transacaoId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([tabela, registroId])
+  @@index([usuarioId])
+  @@index([createdAt])
+  @@map("histories")
+}
+
+enum AcaoHistory {
+  CREATE
+  UPDATE
+  DELETE
+  ESTORNO
+}
+
+// ============================================
+// 11. TURMA
+// ============================================
+model Turma {
+  id         String @id @default(uuid())
+  nome       String // Ex: "Maternal II", "1º Ano A"
+  turno      Turno
+  anoLetivo  Int // 2026
+  capacidade Int    @default(30)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  alunos      Aluno[]
+  professores TurmaProfessor[]
+  disciplinas TurmaDisciplina[]
+  notas       Nota[]
+
+  @@index([escolaId])
+  @@index([anoLetivo])
+  @@map("turmas")
+}
+
+// ============================================
+// 12. PROFESSOR/FUNCIONÁRIO
+// ============================================
+model Funcionario {
+  id             String    @id @default(uuid())
+  nome           String
+  cpf            String    @unique
+  rg             String?
+  dataNascimento DateTime?
+  telefone       String?
+  email          String?
+  foto           String?
+
+  // Dados profissionais
+  cargo        CargoFuncionario
+  dataAdmissao DateTime         @default(now())
+  dataDemissao DateTime?
+  salario      Decimal          @db.Decimal(10, 2)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  enderecoId String?
+  endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
+
+  // Soft delete
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  turmas     TurmaProfessor[]
+  transacoes Transacao[] // Pagamentos de salário
+
+  @@index([escolaId])
+  @@index([cargo])
+  @@index([deletedAt])
+  @@map("funcionarios")
+}
+
+enum CargoFuncionario {
+  PROFESSOR
+  COORDENADOR
+  SECRETARIA
+  DIRETOR
+  AUXILIAR
+  OUTRO
+}
+
+// Tabela intermediária N:N (Turma - Professor)
+model TurmaProfessor {
+  id String @id @default(uuid())
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  professorId String
+  professor   Funcionario @relation(fields: [professorId], references: [id], onDelete: Cascade)
+
+  // Professor principal ou auxiliar
+  isPrincipal Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([turmaId, professorId])
+  @@index([turmaId])
+  @@index([professorId])
+  @@map("turmas_professores")
+}
+
+// ============================================
+// 13. DISCIPLINA
+// ============================================
+model Disciplina {
+  id           String  @id @default(uuid())
+  nome         String // Ex: "Matemática", "Português"
+  descricao    String?
+  cargaHoraria Int? // Horas por semana
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  turmas TurmaDisciplina[]
+  notas  Nota[]
+
+  @@index([escolaId])
+  @@map("disciplinas")
+}
+
+// Tabela intermediária N:N (Turma - Disciplina)
+model TurmaDisciplina {
+  id String @id @default(uuid())
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  disciplinaId String
+  disciplina   Disciplina @relation(fields: [disciplinaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([turmaId, disciplinaId])
+  @@index([turmaId])
+  @@index([disciplinaId])
+  @@map("turmas_disciplinas")
+}
+
+// ============================================
+// 14. NOTA (4 Bimestres)
+// ============================================
+model Nota {
+  id String @id @default(uuid())
+
+  // Identificação
+  bimestre  Int // 1, 2, 3 ou 4
+  anoLetivo Int // 2026
+
+  // Nota
+  valor Decimal @db.Decimal(4, 2) // Ex: 8.50
+
+  // Observações do professor
+  observacao String?
+
+  // Relacionamentos
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  disciplinaId String
+  disciplina   Disciplina @relation(fields: [disciplinaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Um aluno não pode ter 2 notas no mesmo bimestre/disciplina
+  @@unique([alunoId, disciplinaId, bimestre, anoLetivo])
+  @@index([alunoId])
+  @@index([turmaId])
+  @@index([disciplinaId])
+  @@map("notas")
+}
