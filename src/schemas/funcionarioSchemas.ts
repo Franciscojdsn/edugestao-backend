@@ -25,7 +25,7 @@ export const criarFuncionarioSchema = z.object({
       'ZELADOR',
       'OUTRO'
     ], {
-      errorMap: () => ({ message: 'Cargo inválido' })
+      error: () => ({ message: 'Cargo inválido' })
     }),
     
     especialidade: z.string()

@@ -1,11 +1,11 @@
-import jwt from 'jsonwebtoken'
+import jwt, { SignOptions } from 'jsonwebtoken'
 import dotenv from 'dotenv'
 
 // ⭐ CARREGAR .env
 dotenv.config()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-INSEGURO'
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
+const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn']
 
 // Validação
 if (!process.env.JWT_SECRET) {

@@ -27,7 +27,7 @@ export const criarAlunoSchema = z.object({
       .max(50, 'Matrícula muito longa'),
     
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'], {
-      errorMap: () => ({ message: 'Turno inválido' })
+      error: () => ({ message: 'Turno inválido' })
     }).optional(),
     
     turmaId: z.string()

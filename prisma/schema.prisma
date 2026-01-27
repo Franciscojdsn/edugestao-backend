@@ -409,8 +409,8 @@ model Turma {
   id         String @id @default(uuid())
   nome       String // Ex: "Maternal II", "1º Ano A"
   turno      Turno
-  anoLetivo  Int // 2026
-  capacidade Int    @default(30)
+  anoLetivo  Int    // Ex: 2026
+  capacidadeMaxima Int    @default(30)
 
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
@@ -551,7 +551,7 @@ model Nota {
 
   // Identificação
   bimestre  Int // 1, 2, 3 ou 4
-  anoLetivo Int // 2026
+  anoLetivo      Int // Ex: 2026
 
   // Nota
   valor Decimal @db.Decimal(4, 2) // Ex: 8.50

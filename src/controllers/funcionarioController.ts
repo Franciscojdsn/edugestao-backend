@@ -58,7 +58,6 @@ export const funcionarioController = {
           nome: true,
           cpf: true,
           cargo: true,
-          especialidade: true,
           telefone: true,
           email: true,
           dataAdmissao: true,
@@ -93,8 +92,10 @@ export const funcionarioController = {
   async show(req: Request, res: Response) {
     const { id } = req.params
 
+    const idFormatado = Array.isArray(id) ? id[0] : id
+
     const funcionario = await prisma.funcionario.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
       include: {
         endereco: true,
         turmas: {
@@ -103,8 +104,6 @@ export const funcionarioController = {
               select: {
                 id: true,
                 nome: true,
-                serie: true,
-                ano: true,
                 turno: true,
               },
             },
@@ -174,10 +173,11 @@ export const funcionarioController = {
   async update(req: Request, res: Response) {
     const { id } = req.params
     const dados = req.body
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     // Verificar se funcionário existe e pertence à escola
     const funcionarioExistente = await prisma.funcionario.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
     })
 
     if (!funcionarioExistente) {
@@ -189,7 +189,7 @@ export const funcionarioController = {
       const cpfEmUso = await prisma.funcionario.findFirst({
         where: withEscolaId({
           cpf: dados.cpf,
-          id: { not: id },
+          id: { not: idFormatado },
         }),
       })
 
@@ -207,7 +207,7 @@ export const funcionarioController = {
 
     // Atualizar
     const funcionario = await prisma.funcionario.update({
-      where: { id },
+      where: { id: idFormatado },
       data: {
         ...dados,
         dataAdmissao: dados.dataAdmissao 
@@ -224,10 +224,11 @@ export const funcionarioController = {
    */
   async delete(req: Request, res: Response) {
     const { id } = req.params
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     // Verificar se funcionário existe e pertence à escola
     const funcionario = await prisma.funcionario.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
     })
 
     if (!funcionario) {
@@ -236,7 +237,7 @@ export const funcionarioController = {
 
     // Soft delete
     await prisma.funcionario.update({
-      where: { id },
+      where: { id: idFormatado },
       data: { 
         deletedAt: new Date(),
       },

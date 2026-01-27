@@ -67,7 +67,6 @@ export const alunoController = {
             select: {
               id: true,
               nome: true,
-              serie: true,
             },
           },
           _count: {
@@ -100,9 +99,10 @@ export const alunoController = {
    */
   async show(req: Request, res: Response) {
     const { id } = req.params
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
       include: {
         turma: true,
         endereco: true,
@@ -111,7 +111,6 @@ export const alunoController = {
             id: true,
             nome: true,
             tipo: true,
-            telefone: true,
             email: true,
             isResponsavelFinanceiro: true,
           },
@@ -123,7 +122,6 @@ export const alunoController = {
             diaVencimento: true,
             dataInicio: true,
             dataFim: true,
-            status: true,
           },
         },
         _count: {
@@ -199,7 +197,6 @@ export const alunoController = {
           select: {
             id: true,
             nome: true,
-            serie: true,
           },
         },
       },
@@ -214,10 +211,11 @@ export const alunoController = {
   async update(req: Request, res: Response) {
     const { id } = req.params
     const dados = req.body
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     // Verificar se aluno existe e pertence à escola
     const alunoExistente = await prisma.aluno.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
     })
 
     if (!alunoExistente) {
@@ -229,7 +227,7 @@ export const alunoController = {
       const matriculaEmUso = await prisma.aluno.findFirst({
         where: withEscolaId({
           numeroMatricula: dados.numeroMatricula,
-          id: { not: id },
+          id: { not: idFormatado },
         }),
       })
 
@@ -258,7 +256,7 @@ export const alunoController = {
 
     // Atualizar
     const aluno = await prisma.aluno.update({
-      where: { id },
+      where: { id: idFormatado },
       data: {
         ...dados,
         dataNascimento: dados.dataNascimento 
@@ -270,7 +268,6 @@ export const alunoController = {
           select: {
             id: true,
             nome: true,
-            serie: true,
           },
         },
       },
@@ -284,10 +281,11 @@ export const alunoController = {
    */
   async delete(req: Request, res: Response) {
     const { id } = req.params
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     // Verificar se aluno existe e pertence à escola
     const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id }),
+      where: withTenancy({ id: idFormatado }),
     })
 
     if (!aluno) {
@@ -296,7 +294,7 @@ export const alunoController = {
 
     // Soft delete
     await prisma.aluno.update({
-      where: { id },
+      where: { id: idFormatado },
       data: { 
         deletedAt: new Date(),
       },

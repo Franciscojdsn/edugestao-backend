@@ -15,9 +15,8 @@ export const turmaController = {
     const { 
       page = 1, 
       limit = 20, 
-      ano, 
+      anoLetivo, 
       turno, 
-      serie,
       busca 
     } = req.query
 
@@ -26,9 +25,8 @@ export const turmaController = {
     // Construir filtros
     let where: any = {}
     
-    if (ano) where.ano = Number(ano)
+    if (anoLetivo) where.anoLetivo = Number(anoLetivo)
     if (turno) where.turno = turno
-    if (serie) where.serie = serie
     
     // Busca por nome
     if (busca) {
@@ -50,8 +48,7 @@ export const turmaController = {
         select: {
           id: true,
           nome: true,
-          serie: true,
-          ano: true,
+          anoLetivo: true,
           turno: true,
           capacidadeMaxima: true,
           createdAt: true,
@@ -64,8 +61,7 @@ export const turmaController = {
           },
         },
         orderBy: [
-          { ano: 'desc' },
-          { serie: 'asc' },
+          { anoLetivo: 'desc' },
           { nome: 'asc' },
         ],
       }),
@@ -88,9 +84,10 @@ export const turmaController = {
    */
   async show(req: Request, res: Response) {
     const { id } = req.params
+    const idFormatado = Array.isArray(id) ? id[0] : id
 
     const turma = await prisma.turma.findFirst({
-      where: withEscolaId({ id }),
+      where: withEscolaId({ id: idFormatado }),
       include: {
         alunos: {
           select: {
@@ -123,7 +120,6 @@ export const turmaController = {
               select: {
                 id: true,
                 nome: true,
-                especialidade: true,
               },
             },
           },
@@ -160,7 +156,7 @@ export const turmaController = {
     const turmaExiste = await prisma.turma.findFirst({
       where: withEscolaId({
         nome: dados.nome,
-        ano: dados.ano,
+        anoLetivo: dados.anoLetivo,
       }),
     })
 
@@ -192,10 +188,10 @@ export const turmaController = {
   async update(req: Request, res: Response) {
     const { id } = req.params
     const dados = req.body
-
+    const idFormatado = Array.isArray(id) ? id[0] : id
     // Verificar se turma existe e pertence à escola
     const turmaExistente = await prisma.turma.findFirst({
-      where: withEscolaId({ id }),
+      where: withEscolaId({ id: idFormatado }),
     })
 
     if (!turmaExistente) {
@@ -203,15 +199,15 @@ export const turmaController = {
     }
 
     // Se está alterando nome ou ano, verificar duplicação
-    if (dados.nome || dados.ano) {
+    if (dados.nome || dados.anoLetivo) {
       const nomeVerificar = dados.nome || turmaExistente.nome
-      const anoVerificar = dados.ano || turmaExistente.ano
+      const anoVerificar = dados.anoLetivo || turmaExistente.anoLetivo
 
       const duplicada = await prisma.turma.findFirst({
         where: withEscolaId({
           nome: nomeVerificar,
-          ano: anoVerificar,
-          id: { not: id },
+          anoLetivo: anoVerificar,
+          id: { not: idFormatado },
         }),
       })
 
@@ -222,7 +218,7 @@ export const turmaController = {
 
     // Atualizar
     const turma = await prisma.turma.update({
-      where: { id },
+      where: { id: idFormatado },
       data: dados,
       include: {
         _count: {
@@ -246,10 +242,10 @@ export const turmaController = {
    */
   async delete(req: Request, res: Response) {
     const { id } = req.params
-
+    const idFormatado = Array.isArray(id) ? id[0] : id
     // Verificar se turma existe e pertence à escola
     const turma = await prisma.turma.findFirst({
-      where: withEscolaId({ id }),
+      where: withEscolaId({ id: idFormatado }),
       include: {
         _count: {
           select: {
@@ -273,7 +269,7 @@ export const turmaController = {
 
     // Deletar
     await prisma.turma.delete({
-      where: { id },
+      where: { id: idFormatado },
     })
 
     return res.status(204).send()

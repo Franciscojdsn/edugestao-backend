@@ -13,17 +13,13 @@ export const criarTurmaSchema = z.object({
       .min(3, 'Nome deve ter no mínimo 3 caracteres')
       .max(100, 'Nome muito longo'),
     
-    serie: z.string()
-      .min(1, 'Série é obrigatória')
-      .max(50, 'Série muito longa'),
-    
-    ano: z.number()
+    anoLetivo: z.number()
       .int('Ano deve ser número inteiro')
       .min(2000, 'Ano inválido')
       .max(2100, 'Ano inválido'),
     
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'], {
-      errorMap: () => ({ message: 'Turno inválido' })
+      error: () => ({ message: 'Turno inválido' })
     }),
     
     capacidadeMaxima: z.number()
@@ -46,10 +42,6 @@ export const atualizarTurmaSchema = z.object({
       .max(100, 'Nome muito longo')
       .optional(),
     
-    serie: z.string()
-      .min(1, 'Série é obrigatória')
-      .max(50, 'Série muito longa')
-      .optional(),
     
     ano: z.number()
       .int('Ano deve ser número inteiro')
@@ -82,7 +74,7 @@ export const listarTurmasSchema = z.object({
       .transform(Number)
       .optional(),
     
-    ano: z.string()
+    anoLetivo: z.string()
       .regex(/^\d+$/, 'Ano deve ser número')
       .transform(Number)
       .optional(),
@@ -90,9 +82,6 @@ export const listarTurmasSchema = z.object({
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
       .optional(),
     
-    serie: z.string()
-      .min(1)
-      .optional(),
     
     busca: z.string()
       .min(1)
