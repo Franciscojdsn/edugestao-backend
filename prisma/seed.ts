@@ -159,7 +159,7 @@ async function main() {
       nome: 'Maternal II',
       turno: 'MATUTINO',
       anoLetivo: 2026,
-      capacidade: 20,
+      capacidadeMaxima: 20,
       escolaId: escola.id,
     },
   })
@@ -169,7 +169,7 @@ async function main() {
       nome: '1º Ano A',
       turno: 'MATUTINO',
       anoLetivo: 2026,
-      capacidade: 25,
+      capacidadeMaxima: 25,
       escolaId: escola.id,
     },
   })

@@ -169,6 +169,7 @@ model Responsavel {
   // Relacionamentos
   alunoId String
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+  escolaId      String?
 
   enderecoId String?
   endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
@@ -208,9 +209,12 @@ model Contrato {
   percentualDesconto Decimal? @db.Decimal(5, 2)
   motivoDesconto     String?
 
+  status Boolean @default(true) // Ativo/Inativo
   ativo Boolean @default(true)
 
   // Relacionamentos
+  transacoes Transacao[]
+  
   alunoId String @unique // 1 aluno = 1 contrato ativo
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
@@ -344,6 +348,9 @@ model Transacao {
   funcionarioId String? // Se for pagamento de salário
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
 
+  contratoId String?     // ID da chave estrangeira
+  contrato   Contrato?   @relation(fields: [contratoId], references: [id])
+
   // Soft delete (importante para auditoria)
   deletedAt DateTime?
 
@@ -351,7 +358,7 @@ model Transacao {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  pagamento Pagamento? // Relacionamento reverso
+  pagamentos Pagamento? // Relacionamento reverso
   histories History[]
 
   @@index([escolaId])
