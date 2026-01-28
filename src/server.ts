@@ -13,6 +13,9 @@ import { turmaDisciplinaRoutes } from './routes/turmaDisciplinaRoutes'
 import { notaRoutes } from './routes/notaRoutes'
 import { dashboardRoutes } from './routes/dashboardRoutes'
 import { contratoRoutes } from './routes/contratoRoutes'
+import { pagamentoRoutes } from './routes/pagamentoRoutes'
+import { atividadeExtraRoutes } from './routes/atividadeExtraRoutes'
+import { enderecoRoutes } from './routes/enderecoRoutes'
 
 dotenv.config()
 
@@ -41,6 +44,9 @@ app.use(turmaDisciplinaRoutes)
 app.use('/notas', notaRoutes)
 app.use('/dashboard', dashboardRoutes)
 app.use('/contratos', contratoRoutes)
+app.use('/pagamentos', pagamentoRoutes)
+app.use('/atividades-extra', atividadeExtraRoutes)
+app.use('/enderecos', enderecoRoutes)
 
 // Middleware de erro
 app.use(errorHandler)

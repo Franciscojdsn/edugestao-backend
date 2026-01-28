@@ -2,8 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
-  engineType = "binary"  // ← ADICIONE AQUI
+  provider   = "prisma-client-js"
+  engineType = "binary" // ← ADICIONE AQUI
 }
 
 datasource db {
@@ -167,9 +167,9 @@ model Responsavel {
   isResponsavelFinanceiro Boolean         @default(false)
 
   // Relacionamentos
-  alunoId String
-  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
-  escolaId      String?
+  alunoId  String
+  aluno    Aluno   @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+  escolaId String?
 
   enderecoId String?
   endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
@@ -210,11 +210,11 @@ model Contrato {
   motivoDesconto     String?
 
   status Boolean @default(true) // Ativo/Inativo
-  ativo Boolean @default(true)
+  ativo  Boolean @default(true)
 
   // Relacionamentos
   transacoes Transacao[]
-  
+
   alunoId String @unique // 1 aluno = 1 contrato ativo
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
@@ -237,6 +237,10 @@ model AtividadeExtra {
   descricao String?
   valor     Decimal @db.Decimal(10, 2)
 
+  diaAula          DiaAula? // ← NOVO
+  horario          String? // ← NOVO (formato: "14:30")
+  capacidadeMaxima Int? // ← NOVO
+
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
@@ -248,6 +252,15 @@ model AtividadeExtra {
 
   @@index([escolaId])
   @@map("atividades_extra")
+}
+
+enum DiaAula {
+  SEGUNDA
+  TERCA
+  QUARTA
+  QUINTA
+  SEXTA
+  SABADO
 }
 
 // Tabela intermediária N:N
@@ -297,6 +310,12 @@ model Pagamento {
   // Status
   status StatusPagamento @default(PENDENTE)
 
+  // Informações adicionais
+  formaPagamento FormaPagamento? // ← NOVO
+  comprovante    String? // ← NOVO
+  observacoes    String? // ← NOVO
+  descricao      String? // ← NOVO
+
   // Integração Asaas
   asaasId   String? @unique // ID do pagamento no Asaas
   boletoUrl String? // URL do boleto
@@ -316,6 +335,14 @@ model Pagamento {
   @@index([status])
   @@index([dataVencimento])
   @@map("pagamentos")
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  CARTAO
+  BOLETO
+  TRANSFERENCIA
 }
 
 enum StatusPagamento {
@@ -348,8 +375,8 @@ model Transacao {
   funcionarioId String? // Se for pagamento de salário
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
 
-  contratoId String?     // ID da chave estrangeira
-  contrato   Contrato?   @relation(fields: [contratoId], references: [id])
+  contratoId String? // ID da chave estrangeira
+  contrato   Contrato? @relation(fields: [contratoId], references: [id])
 
   // Soft delete (importante para auditoria)
   deletedAt DateTime?
@@ -359,7 +386,7 @@ model Transacao {
 
   // Relacionamentos
   pagamentos Pagamento? // Relacionamento reverso
-  histories History[]
+  histories  History[]
 
   @@index([escolaId])
   @@index([tipo])
@@ -413,10 +440,10 @@ enum AcaoHistory {
 // 11. TURMA
 // ============================================
 model Turma {
-  id         String @id @default(uuid())
-  nome       String // Ex: "Maternal II", "1º Ano A"
-  turno      Turno
-  anoLetivo  Int    // Ex: 2026
+  id               String @id @default(uuid())
+  nome             String // Ex: "Maternal II", "1º Ano A"
+  turno            Turno
+  anoLetivo        Int // Ex: 2026
   capacidadeMaxima Int    @default(30)
 
   escolaId String
@@ -558,7 +585,7 @@ model Nota {
 
   // Identificação
   bimestre  Int // 1, 2, 3 ou 4
-  anoLetivo      Int // Ex: 2026
+  anoLetivo Int // Ex: 2026
 
   // Nota
   valor Decimal @db.Decimal(4, 2) // Ex: 8.50
