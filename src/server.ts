@@ -16,6 +16,9 @@ import { contratoRoutes } from './routes/contratoRoutes'
 import { pagamentoRoutes } from './routes/pagamentoRoutes'
 import { atividadeExtraRoutes } from './routes/atividadeExtraRoutes'
 import { enderecoRoutes } from './routes/enderecoRoutes'
+import { relatorioRoutes } from './routes/relatorioRoutes'
+import { gerarPagamentosRoutes } from './routes/gerarPagamentosRoutes'
+import { frequenciaRoutes } from './routes/frequenciaRoutes'
 
 dotenv.config()
 
@@ -47,6 +50,9 @@ app.use('/contratos', contratoRoutes)
 app.use('/pagamentos', pagamentoRoutes)
 app.use('/atividades-extra', atividadeExtraRoutes)
 app.use('/enderecos', enderecoRoutes)
+app.use('/relatorios', relatorioRoutes)
+app.use(gerarPagamentosRoutes)
+app.use('/frequencias', frequenciaRoutes)
 
 // Middleware de erro
 app.use(errorHandler)

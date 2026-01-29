@@ -135,6 +135,7 @@ model Aluno {
   pagamentos      Pagamento[]
   notas           Nota[]
   atividadesExtra AlunoAtividadeExtra[]
+  frequencias Frequencia[]
 
   @@index([escolaId])
   @@index([turmaId])
@@ -457,6 +458,7 @@ model Turma {
   professores TurmaProfessor[]
   disciplinas TurmaDisciplina[]
   notas       Nota[]
+  frequencias Frequencia[]
 
   @@index([escolaId])
   @@index([anoLetivo])
@@ -553,6 +555,7 @@ model Disciplina {
   // Relacionamentos
   turmas TurmaDisciplina[]
   notas  Nota[]
+  frequencias Frequencia[]
 
   @@index([escolaId])
   @@map("disciplinas")
@@ -612,4 +615,34 @@ model Nota {
   @@index([turmaId])
   @@index([disciplinaId])
   @@map("notas")
+}
+
+// ============================================
+// 15. FREQÜÊNCIA
+// ============================================
+
+model Frequencia {
+  id String @id @default(uuid())
+
+  data DateTime @default(now())
+  presente Boolean @default(true)
+  justificativa String?
+
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  disciplinaId String?
+  disciplina   Disciplina? @relation(fields: [disciplinaId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([alunoId, turmaId, data, disciplinaId])
+  @@index([alunoId])
+  @@index([turmaId])
+  @@index([data])
+  @@map("frequencias")
 }

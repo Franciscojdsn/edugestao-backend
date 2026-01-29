@@ -62,12 +62,11 @@ export const contratoController = {
         transacoes: {
           select: {
             id: true,
-            referencia: true,
-            valorTotal: true,
-            dataVencimento: true,
-            status: true,
+            motivo: true,
+            valor: true,
+            data: true,
           },
-          orderBy: { dataVencimento: 'asc' },
+          orderBy: { data: 'asc' },
         },
       },
     })
@@ -148,8 +147,10 @@ export const contratoController = {
   },
 
   async cancelar(req: Request, res: Response) {
+    const dados = req.body
     const { id } = req.params
     const idFormatado = Array.isArray(id) ? id[0] : id
+    const isStatus = dados.status ? dados.status : 'CANCELADO'
 
     const contrato = await prisma.contrato.findFirst({
       where: {
@@ -162,7 +163,7 @@ export const contratoController = {
     const contratoAtualizado = await prisma.contrato.update({
       where: { id: idFormatado },
       data: {
-        status: 'CANCELADO',
+        status: isStatus,
         dataFim: new Date(),
       },
     })
