@@ -38,6 +38,11 @@ model Escola {
   disciplinas     Disciplina[]
   transacoes      Transacao[]
   atividadesExtra AtividadeExtra[]
+  comunicados     Comunicado[]
+  matriculas      Matricula[]
+  rematriculas    Rematricula[]
+  ocorrencias     Ocorrencia[]
+  eventos         Evento[]
 
   @@map("escolas")
 }
@@ -135,7 +140,11 @@ model Aluno {
   pagamentos      Pagamento[]
   notas           Nota[]
   atividadesExtra AlunoAtividadeExtra[]
-  frequencias Frequencia[]
+  frequencias     Frequencia[]
+  comunicados     Comunicado[]
+  matricula       Matricula?
+  rematriculas    Rematricula[]
+  ocorrencias     Ocorrencia[]
 
   @@index([escolaId])
   @@index([turmaId])
@@ -179,8 +188,9 @@ model Responsavel {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  contratos  Contrato[]
-  transacoes Transacao[]
+  contratos   Contrato[]
+  transacoes  Transacao[]
+  comunicados Comunicado[]
 
   @@index([alunoId])
   @@map("responsaveis")
@@ -459,6 +469,10 @@ model Turma {
   disciplinas TurmaDisciplina[]
   notas       Nota[]
   frequencias Frequencia[]
+  comunicados Comunicado[]
+  matriculas  Matricula[]
+  eventos     Evento[]
+
 
   @@index([escolaId])
   @@index([anoLetivo])
@@ -497,8 +511,9 @@ model Funcionario {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  turmas     TurmaProfessor[]
-  transacoes Transacao[] // Pagamentos de salário
+  turmas      TurmaProfessor[]
+  transacoes  Transacao[] // Pagamentos de salário
+  ocorrencias Ocorrencia[]
 
   @@index([escolaId])
   @@index([cargo])
@@ -553,8 +568,8 @@ model Disciplina {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  turmas TurmaDisciplina[]
-  notas  Nota[]
+  turmas      TurmaDisciplina[]
+  notas       Nota[]
   frequencias Frequencia[]
 
   @@index([escolaId])
@@ -624,8 +639,8 @@ model Nota {
 model Frequencia {
   id String @id @default(uuid())
 
-  data DateTime @default(now())
-  presente Boolean @default(true)
+  data          DateTime @default(now())
+  presente      Boolean  @default(true)
   justificativa String?
 
   alunoId String
@@ -645,4 +660,270 @@ model Frequencia {
   @@index([turmaId])
   @@index([data])
   @@map("frequencias")
+}
+
+// ============================================
+// 16. COMUNICADO
+// ============================================
+
+model Comunicado {
+  id String @id @default(uuid())
+
+  titulo        String
+  mensagem      String
+  tipo          TipoComunicado       @default(GERAL)
+  prioridade    PrioridadeComunicado @default(NORMAL)
+  destinatarios String               @default("TODOS")
+  dataEnvio     DateTime             @default(now())
+  lido          Boolean              @default(false)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  alunoId String?
+  aluno   Aluno?  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  turmaId String?
+  turma   Turma?  @relation(fields: [turmaId], references: [id], onDelete: SetNull)
+
+  responsavelId String?
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([alunoId])
+  @@index([turmaId])
+  @@index([responsavelId])
+  @@map("comunicados")
+}
+
+enum TipoComunicado {
+  GERAL
+  FINANCEIRO
+  PEDAGOGICO
+  EVENTO
+  URGENTE
+}
+
+enum PrioridadeComunicado {
+  BAIXA
+  NORMAL
+  ALTA
+  URGENTE
+}
+
+enum Destinatarios {
+  TODOS
+  TURMA
+  INADIMPLENTES
+}
+
+// ============================================
+// 17. MATRICULA
+// ============================================
+
+model Matricula {
+  id String @id @default(uuid())
+
+  // Dados principais
+  numeroMatricula String          @unique
+  dataMatricula   DateTime        @default(now())
+  anoLetivo       Int
+  status          StatusMatricula @default(PENDENTE)
+  
+  // Etapas do processo
+  etapaAtual          EtapaMatricula @default(DADOS_PESSOAIS)
+  dadosPessoaisOk     Boolean        @default(false)
+  documentosOk        Boolean        @default(false)
+  responsaveisOk      Boolean        @default(false)
+  contratoAssinado    Boolean        @default(false)
+  pagamentoConfirmado Boolean        @default(false)
+
+  // Relacionamentos
+  alunoId String @unique
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Restrict)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  // Observações
+  observacoes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([status])
+  @@index([anoLetivo])
+  @@map("matriculas")
+}
+
+enum StatusMatricula {
+  PENDENTE
+  EM_ANALISE
+  APROVADA
+  REJEITADA
+  CANCELADA
+}
+
+enum EtapaMatricula {
+  DADOS_PESSOAIS
+  DOCUMENTOS
+  RESPONSAVEIS
+  CONTRATO
+  PAGAMENTO
+  FINALIZADA
+}
+
+// ============================================
+// 18. REMATRICULA
+// ============================================
+
+model Rematricula {
+  id String @id @default(uuid())
+
+  anoAnterior Int
+  anoNovo     Int
+  status      StatusRematricula @default(PENDENTE)
+
+  // Mudanças
+  turmaAnteriorId String
+  turmaNova       String?
+
+  valorAnterior Decimal @db.Decimal(10, 2)
+  valorNovo     Decimal @db.Decimal(10, 2)
+
+  // Relacionamentos
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  dataConfirmacao DateTime?
+  observacoes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([status])
+  @@index([anoNovo])
+  @@map("rematriculas")
+}
+
+enum StatusRematricula {
+  PENDENTE
+  CONFIRMADA
+  RECUSADA
+  CANCELADA
+}
+
+// ============================================
+// 19. OCORRENCIA
+// ============================================
+
+model Ocorrencia {
+  id String @id @default(uuid())
+
+  titulo    String
+  descricao String
+  tipo      TipoOcorrencia
+  gravidade GravidadeOcorrencia @default(LEVE)
+  data      DateTime            @default(now())
+
+  // Ações tomadas
+  acaoTomada      String?
+  responsavelAcao String?
+
+  // Comunicado aos pais
+  paisComunicados Boolean   @default(false)
+  dataComunicacao DateTime?
+
+  // Relacionamentos
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Restrict)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([alunoId])
+  @@index([tipo])
+  @@index([data])
+  @@map("ocorrencias")
+}
+
+enum TipoOcorrencia {
+  COMPORTAMENTO
+  FALTA_DISCIPLINAR
+  BULLYING
+  ATRASO
+  UNIFORME
+  MATERIAL
+  OUTROS
+}
+
+enum GravidadeOcorrencia {
+  LEVE
+  MODERADA
+  GRAVE
+  GRAVISSIMA
+}
+
+// ============================================
+// 20. EVENTO
+// ============================================
+
+model Evento {
+  id String @id @default(uuid())
+
+  titulo     String
+  descricao  String?
+  tipo       TipoEvento
+  dataInicio DateTime
+  dataFim    DateTime?
+  horaInicio String? // "08:00"
+  horaFim    String? // "12:00"
+
+  // Configurações
+  diaLetivo Boolean @default(true)
+  publico   Boolean @default(true) // Visível para pais
+
+  // Relacionamentos
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  turmaId String? // Evento específico de uma turma
+  turma   Turma?  @relation(fields: [turmaId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([dataInicio])
+  @@index([tipo])
+  @@map("eventos")
+}
+
+enum TipoEvento {
+  AULA
+  PROVA
+  REUNIAO
+  FERIADO
+  EVENTO_ESCOLAR
+  RECESSO
+  FERIAS
+  OUTROS
 }

@@ -19,6 +19,9 @@ import { enderecoRoutes } from './routes/enderecoRoutes'
 import { relatorioRoutes } from './routes/relatorioRoutes'
 import { gerarPagamentosRoutes } from './routes/gerarPagamentosRoutes'
 import { frequenciaRoutes } from './routes/frequenciaRoutes'
+import { comunicadoRoutes } from './routes/comunicadoRoutes'
+import { historicoEscolarRoutes } from './routes/historicoEscolarRoutes'
+import { matriculaRoutes } from './routes/matriculaRoutes'
 
 dotenv.config()
 
@@ -53,6 +56,9 @@ app.use('/enderecos', enderecoRoutes)
 app.use('/relatorios', relatorioRoutes)
 app.use(gerarPagamentosRoutes)
 app.use('/frequencias', frequenciaRoutes)
+app.use('/comunicados', comunicadoRoutes)
+app.use('/historico-escolar', historicoEscolarRoutes)
+app.use('/matriculas', matriculaRoutes)
 
 // Middleware de erro
 app.use(errorHandler)
