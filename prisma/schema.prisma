@@ -43,6 +43,7 @@ model Escola {
   rematriculas    Rematricula[]
   ocorrencias     Ocorrencia[]
   eventos         Evento[]
+  logAuditorias   LogAuditoria[]
 
   @@map("escolas")
 }
@@ -473,7 +474,6 @@ model Turma {
   matriculas  Matricula[]
   eventos     Evento[]
 
-
   @@index([escolaId])
   @@index([anoLetivo])
   @@map("turmas")
@@ -511,9 +511,10 @@ model Funcionario {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  turmas      TurmaProfessor[]
-  transacoes  Transacao[] // Pagamentos de salário
-  ocorrencias Ocorrencia[]
+  turmas        TurmaProfessor[]
+  transacoes    Transacao[] // Pagamentos de salário
+  ocorrencias   Ocorrencia[]
+  logAuditorias LogAuditoria[]
 
   @@index([escolaId])
   @@index([cargo])
@@ -732,7 +733,7 @@ model Matricula {
   dataMatricula   DateTime        @default(now())
   anoLetivo       Int
   status          StatusMatricula @default(PENDENTE)
-  
+
   // Etapas do processo
   etapaAtual          EtapaMatricula @default(DADOS_PESSOAIS)
   dadosPessoaisOk     Boolean        @default(false)
@@ -926,4 +927,28 @@ enum TipoEvento {
   RECESSO
   FERIAS
   OUTROS
+}
+
+// ============================================
+// 20. logAuditoria 
+// ============================================
+
+model LogAuditoria {
+  id           String      @id @default(uuid())
+  entidade     String
+  entidadeId   String
+  acao         String
+  dadosAntigos Json?
+  dadosNovos   Json?
+  usuarioId    String
+  usuario      Funcionario @relation(fields: [usuarioId], references: [id])
+  escolaId     String
+  escola       Escola      @relation(fields: [escolaId], references: [id])
+  ip           String?
+  createdAt    DateTime    @default(now())
+
+  @@index([escolaId])
+  @@index([entidade])
+  @@index([createdAt])
+  @@map("logs_auditoria")
 }
