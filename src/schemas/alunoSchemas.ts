@@ -12,28 +12,30 @@ export const criarAlunoSchema = z.object({
     nome: z.string()
       .min(3, 'Nome deve ter no mínimo 3 caracteres')
       .max(100, 'Nome muito longo'),
-    
+
     cpf: z.string()
-      .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF inválido (formato: 000.000.000-00)')
+      .transform(val => val.replace(/\D/g, ''))
+      .refine(val => val.length === 11, "CPF deve ter 11 dígitos")
       .optional(),
-    
-    dataNascimento: z.string()
-      .datetime({ message: 'Data inválida (formato ISO)' })
-      .optional()
-      .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (formato: YYYY-MM-DD)').optional()),
-    
+
+    dataNascimento: z.preprocess((val) => {
+      // Se vier YYYY-MM-DD ou ISO, o Zod tenta converter
+      if (typeof val === "string") return new Date(val);
+      return val;
+    }, z.date().optional()),
+
     numeroMatricula: z.string()
       .min(1, 'Número de matrícula é obrigatório')
       .max(50, 'Matrícula muito longa'),
-    
+
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'], {
       error: () => ({ message: 'Turno inválido' })
     }).optional(),
-    
+
     turmaId: z.string()
       .uuid('ID de turma inválido')
       .optional(),
-    
+
     enderecoId: z.string()
       .uuid('ID de endereço inválido')
       .optional(),
@@ -52,24 +54,24 @@ export const atualizarAlunoSchema = z.object({
       .min(3, 'Nome deve ter no mínimo 3 caracteres')
       .max(100, 'Nome muito longo')
       .optional(),
-    
+
     cpf: z.string()
       .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF inválido (formato: 000.000.000-00)')
       .optional(),
-    
+
     dataNascimento: z.string()
       .datetime({ message: 'Data inválida' })
       .optional()
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
-    
+
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
       .optional(),
-    
+
     turmaId: z.string()
       .uuid('ID de turma inválido')
       .nullable()
       .optional(),
-    
+
     enderecoId: z.string()
       .uuid('ID de endereço inválido')
       .nullable()
@@ -86,19 +88,19 @@ export const listarAlunosSchema = z.object({
       .regex(/^\d+$/, 'Page deve ser número')
       .transform(Number)
       .optional(),
-    
+
     limit: z.string()
       .regex(/^\d+$/, 'Limit deve ser número')
       .transform(Number)
       .optional(),
-    
+
     turmaId: z.string()
       .uuid('ID de turma inválido')
       .optional(),
-    
+
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
       .optional(),
-    
+
     busca: z.string()
       .min(1)
       .optional(),

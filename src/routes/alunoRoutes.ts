@@ -1,14 +1,9 @@
 import { Router } from 'express'
 import { alunoController } from '../controllers/alunoController'
-import { authMiddleware } from '../middlewares/auth'
+import { authMiddleware, checkRole } from '../middlewares/auth'
 import { contextMiddleware } from '../middlewares/contextMiddleware'
 import { validate } from '../middlewares/validate'
-import {
-  criarAlunoSchema,
-  atualizarAlunoSchema,
-  listarAlunosSchema,
-  idAlunoSchema,
-} from '../schemas/alunoSchemas'
+import { criarAlunoSchema, atualizarAlunoSchema, listarAlunosSchema, idAlunoSchema, } from '../schemas/alunoSchemas'
 
 const router = Router()
 
@@ -41,9 +36,7 @@ router.get(
  * Busca aluno por ID
  */
 router.get(
-  '/:id',
-  validate(idAlunoSchema),
-  alunoController.show
+  '/:id', authMiddleware, checkRole(['ADMIN', 'SECRETARIA', 'PROFESSOR']), validate(idAlunoSchema), alunoController.show
 )
 
 /**
@@ -51,9 +44,7 @@ router.get(
  * Cria novo aluno
  */
 router.post(
-  '/',
-  validate(criarAlunoSchema),
-  alunoController.create
+  '/', authMiddleware, checkRole(['ADMIN', 'SECRETARIA']), validate(criarAlunoSchema), alunoController.create
 )
 
 /**
@@ -62,6 +53,8 @@ router.post(
  */
 router.put(
   '/:id',
+  authMiddleware,
+  checkRole(['ADMIN', 'SECRETARIA']),
   validate(atualizarAlunoSchema),
   alunoController.update
 )
@@ -71,7 +64,7 @@ router.put(
  * Soft delete de aluno
  */
 router.delete(
-  '/:id',
+  '/:id', authMiddleware, checkRole(['ADMIN']),
   validate(idAlunoSchema),
   alunoController.delete
 )

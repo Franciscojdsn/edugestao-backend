@@ -1,4 +1,4 @@
-import { Request } from 'express'
+import { RoleUsuario } from '@prisma/client'
 
 declare global {
   namespace Express {
@@ -6,7 +6,7 @@ declare global {
       user?: {
         userId: string
         escolaId: string
-        role: string
+        role: RoleUsuario // Usando o Enum oficial
       }
     }
   }

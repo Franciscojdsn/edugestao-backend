@@ -4,25 +4,25 @@ import { AppError } from '../middlewares/errorHandler'
 import { withTenancy } from '../utils/prismaHelpers'
 
 export const pagamentoController = {
+
+  // GET - listar pagamentos com paginação e filtros
   async list(req: Request, res: Response) {
-    const { page = 1, limit = 20, alunoId, status } = req.query
-    const skip = (Number(page) - 1) * Number(limit)
+    const { page, limit, alunoId, status } = req.query as any
+    const skip = (page - 1) * limit
 
-    let where: any = {}
-    
-    if (alunoId) where.alunoId = alunoId
-    if (status) where.status = status
-
-    where.aluno = {
+    let where: any = {
       escolaId: req.user?.escolaId,
       deletedAt: null,
     }
+
+    if (alunoId) where.alunoId = alunoId
+    if (status) where.status = status
 
     const [pagamentos, total] = await Promise.all([
       prisma.pagamento.findMany({
         where,
         skip,
-        take: Number(limit),
+        take: limit,
         include: {
           aluno: {
             select: {
@@ -40,99 +40,98 @@ export const pagamentoController = {
 
     return res.json({
       data: pagamentos,
-      meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
+      meta: { total, page: page, limit: limit, totalPages: Math.ceil(total / limit) },
     })
   },
 
+
+  // GET /pagamentos/:id - Obter detalhes de um pagamento específico
   async show(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const  id  = req.params.id as string;
+    const escolaId = req.user?.escolaId;
 
     const pagamento = await prisma.pagamento.findFirst({
       where: {
-        id: idFormatado,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
+        id: id,
+        aluno: { escolaId } // Garante que o pagamento é da escola do usuário
       },
       include: {
         aluno: {
-          select: {
-            nome: true,
-            numeroMatricula: true,
+          include: {
             turma: { select: { nome: true } },
-            responsaveis: {
-              select: { nome: true, telefone1: true, email: true, tipo: true },
-            },
-          },
+            responsaveis: true
+          }
         },
-      },
-    })
+        transacao: true
+      }
+    });
 
-    if (!pagamento) throw new AppError('Pagamento não encontrado', 404)
+    if (!pagamento) {
+      throw new AppError('Pagamento não encontrado', 404);
+    }
+
     return res.json(pagamento)
   },
 
+
+  //POST /pagamentos - Criar um novo pagamento
   async create(req: Request, res: Response) {
-    const { alunoId, referencia, valorTotal, dataVencimento } = req.body
+    const dados = req.body
+    const escolaId = req.user?.escolaId;
 
     const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id: alunoId }),
-    })
-    if (!aluno) throw new AppError('Aluno não encontrado', 404)
+      where: { id: dados.alunoId, escolaId }
+    });
 
-    // Extrair mês e ano da referência (formato: "01/2026")
-    const [mes, ano] = referencia.split('/')
-    
+    if (!aluno) {
+      throw new AppError('Aluno não encontrado ou não pertence a esta escola', 404);
+    }
+
     const pagamento = await prisma.pagamento.create({
       data: {
-        alunoId,
-        referencia,
-        mesReferencia: parseInt(mes),
-        anoReferencia: parseInt(ano),
-        valorBase: valorTotal,
-        valorAtividades: 0,
-        valorTotal,
-        dataVencimento: new Date(dataVencimento),
-      },
-      include: {
-        aluno: { select: { nome: true, numeroMatricula: true } },
-      },
-    })
+        ...dados,
+        // Caso seu schema use valorTotal e o banco peça valorBase, ajuste aqui:
+        valorBase: dados.valorTotal,
+        valorTotal: dados.valorTotal,
+      }
+    });
 
     return res.status(201).json(pagamento)
   },
 
+
+  // PUT /pagamentos/:id - Atualizar um pagamento existente
   async update(req: Request, res: Response) {
-    const { id } = req.params
+    const  id  = req.params.id as string;
     const dados = req.body
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const escolaId = req.user?.escolaId;
 
     const pagamentoExistente = await prisma.pagamento.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
-      },
-    })
-    if (!pagamentoExistente) throw new AppError('Pagamento não encontrado', 404)
+      where: { id: id, aluno: { escolaId } }
+    });
+
+    if (!pagamentoExistente) {
+      throw new AppError('Pagamento não encontrado ou acesso negado', 404);
+    }
 
     const pagamento = await prisma.pagamento.update({
-      where: { id: idFormatado },
+      where: { id: id },
       data: {
         ...dados,
-        dataPagamento: dados.dataPagamento ? new Date(dados.dataPagamento) : undefined,
       },
     })
 
     return res.json(pagamento)
   },
 
+  // POST /pagamentos/:id/registrar - Registrar pagamento como pago
   async registrarPagamento(req: Request, res: Response) {
-    const { id } = req.params
+    const  id = req.params.id as string;
     const { dataPagamento, valorPago } = req.body
-    const idFormatado = Array.isArray(id) ? id[0] : id
 
     const pagamento = await prisma.pagamento.findFirst({
       where: {
-        id: idFormatado,
+        id: id,
         aluno: { escolaId: req.user?.escolaId, deletedAt: null },
       },
     })
@@ -140,7 +139,7 @@ export const pagamentoController = {
     if (pagamento.status === 'PAGO') throw new AppError('Pagamento já foi registrado', 400)
 
     const pagamentoAtualizado = await prisma.pagamento.update({
-      where: { id: idFormatado },
+      where: { id },
       data: {
         status: 'PAGO',
         dataPagamento: new Date(dataPagamento),
@@ -151,85 +150,93 @@ export const pagamentoController = {
     return res.json(pagamentoAtualizado)
   },
 
+  // POST /pagamentos/:id/cancelar - Cancelar um pagamento - soft delete
   async cancelar(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const  id  = req.params.id as string;
+    const escolaId = req.user?.escolaId;
 
     const pagamento = await prisma.pagamento.findFirst({
       where: {
-        id: idFormatado,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
+        id,
+        aluno: { escolaId, deletedAt: null },
       },
     })
+
     if (!pagamento) throw new AppError('Pagamento não encontrado', 404)
+
     if (pagamento.status === 'PAGO') throw new AppError('Não é possível cancelar pagamento já registrado', 400)
 
     await prisma.pagamento.update({
-      where: { id: idFormatado },
+      where: { id },
       data: { status: 'CANCELADO' },
     })
 
     return res.json({ message: 'Pagamento cancelado' })
   },
 
+  // GET /pagamentos/inadimplentes - Listar alunos inadimplentes
   async inadimplentes(req: Request, res: Response) {
+    const escolaId = req.user?.escolaId;
     const hoje = new Date()
-    hoje.setHours(0, 0, 0, 0)
 
-    const pagamentosVencidos = await prisma.pagamento.findMany({
+
+    const agregacaoInadimplentes = await prisma.pagamento.groupBy({
+      by: ['alunoId'],
       where: {
-        status: 'PENDENTE',
+        status: 'VENCIDO',
         dataVencimento: { lt: hoje },
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
+        aluno: { escolaId, deletedAt: null }
       },
-      include: {
-        aluno: {
-          select: {
-            id: true,
-            nome: true,
-            numeroMatricula: true,
-            turma: { select: { nome: true } },
-            responsaveis: {
-              where: { isResponsavelFinanceiro: true },
-              select: { nome: true, telefone1: true, email: true },
-            },
-          },
-        },
+      _sum: {
+        valorTotal: true
       },
-      orderBy: { dataVencimento: 'asc' },
-    })
+      _count: {
+        id: true
+      }
+    });
 
-    const inadimplenciasPorAluno = pagamentosVencidos.reduce((acc: any, pag) => {
-      const alunoId = pag.aluno.id
-      if (!acc[alunoId]) {
-        acc[alunoId] = {
-          aluno: pag.aluno,
-          responsavel: pag.aluno.responsaveis[0] || null,
-          pagamentosVencidos: [],
-          totalDevido: 0,
+    if (agregacaoInadimplentes.length === 0) {
+      return res.json({ totalGeralDevido: 0, quantidadeAlunos: 0, inadimplentes: [] });
+    }
+
+    // Alunos inadimplentes detalhados
+    const alunosIds = agregacaoInadimplentes.map(item => item.alunoId);
+
+    const detalhesAlunos = await prisma.aluno.findMany({
+      where: { id: { in: alunosIds } },
+      select: {
+        id: true,
+        nome: true,
+        numeroMatricula: true,
+        turma: { select: { nome: true } },
+        responsaveis: {
+          where: { isResponsavelFinanceiro: true },
+          select: { nome: true, telefone1: true, email: true }
         }
       }
-      acc[alunoId].pagamentosVencidos.push({
-        id: pag.id,
-        referencia: pag.referencia,
-        valorTotal: pag.valorTotal,
-        dataVencimento: pag.dataVencimento,
-        diasAtraso: Math.floor((hoje.getTime() - new Date(pag.dataVencimento).getTime()) / (1000 * 60 * 60 * 24)),
-      })
-      acc[alunoId].totalDevido += Number(pag.valorTotal)
-      return acc
-    }, {})
+    });
+    // 3. Montar o retorno final cruzando os dados
+    const resultado = agregacaoInadimplentes.map(item => {
+      const aluno = detalhesAlunos.find(a => a.id === item.alunoId);
+      return {
+        aluno: {
+          id: aluno?.id,
+          nome: aluno?.nome,
+          matricula: aluno?.numeroMatricula,
+          turma: aluno?.turma?.nome
+        },
+        responsavel: aluno?.responsaveis[0] || null,
+        quantidadeTitulos: item._count.id,
+        totalDevido: item._sum.valorTotal
+      };
+    });
 
-    const inadimplentes = Object.values(inadimplenciasPorAluno).map((item: any) => ({
-      ...item,
-      totalDevido: Number(item.totalDevido.toFixed(2)),
-      quantidadePagamentos: item.pagamentosVencidos.length,
-    }))
+    const totalGeralDevido = resultado.reduce((acc, curr) => acc + Number(curr.totalDevido), 0);
 
     return res.json({
-      total: inadimplentes.length,
-      totalGeral: Number(inadimplentes.reduce((s, i) => s + i.totalDevido, 0).toFixed(2)),
-      inadimplentes,
-    })
+      totalGeralDevido,
+      quantidadeAlunos: resultado.length,
+      data: resultado
+    });
   },
 }

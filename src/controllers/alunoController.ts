@@ -175,22 +175,11 @@ export const alunoController = {
       }
     }
 
-    // Converter dataNascimento para DateTime se fornecido
-    if (dados.dataNascimento) {
-      // Se vier como YYYY-MM-DD, converte para ISO
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dados.dataNascimento)) {
-        dados.dataNascimento = new Date(dados.dataNascimento).toISOString()
-      }
-    }
-
     // Criar aluno
     const aluno = await prisma.aluno.create({
       data: {
         ...dados,
         escolaId,
-        dataNascimento: dados.dataNascimento 
-          ? new Date(dados.dataNascimento) 
-          : undefined,
       },
       include: {
         turma: {

@@ -515,6 +515,7 @@ model Funcionario {
   transacoes    Transacao[] // Pagamentos de salário
   ocorrencias   Ocorrencia[]
   logAuditorias LogAuditoria[]
+  disciplinasLecionadas TurmaDisciplina[]
 
   @@index([escolaId])
   @@index([cargo])
@@ -586,6 +587,9 @@ model TurmaDisciplina {
 
   disciplinaId String
   disciplina   Disciplina @relation(fields: [disciplinaId], references: [id], onDelete: Cascade)
+
+  professorId String
+  professor   Funcionario @relation(fields: [professorId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
