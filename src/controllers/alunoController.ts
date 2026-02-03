@@ -72,7 +72,6 @@ export const alunoController = {
           _count: {
             select: {
               responsaveis: true,
-              pagamentos: true,
             },
           },
         },
@@ -127,7 +126,6 @@ export const alunoController = {
         _count: {
           select: {
             responsaveis: true,
-            pagamentos: true,
             notas: true,
             atividadesExtra: true,
           },

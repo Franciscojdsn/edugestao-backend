@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
 import { withTenancy, withEscolaId } from '../utils/prismaHelpers'
 
+// Listar contratos
 export const contratoController = {
   async list(req: Request, res: Response) {
     const { page = 1, limit = 20, status, alunoId } = req.query
@@ -35,6 +36,7 @@ export const contratoController = {
     })
   },
 
+  // Mostrar detalhes de um contrato
   async show(req: Request, res: Response) {
     const { id } = req.params
     const idFormatado = Array.isArray(id) ? id[0] : id
@@ -75,6 +77,7 @@ export const contratoController = {
     return res.json(contrato)
   },
 
+  // Criar um novo contrato
   async create(req: Request, res: Response) {
     const dados = req.body
     const escolaId = req.user?.escolaId
@@ -118,6 +121,7 @@ export const contratoController = {
     return res.status(201).json(contrato)
   },
 
+  // Atualizar um contrato
   async update(req: Request, res: Response) {
     const { id } = req.params
     const dados = req.body
@@ -146,6 +150,7 @@ export const contratoController = {
     return res.json(contrato)
   },
 
+  // Cancelar um contrato
   async cancelar(req: Request, res: Response) {
     const dados = req.body
     const { id } = req.params

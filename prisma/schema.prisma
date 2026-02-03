@@ -138,7 +138,7 @@ model Aluno {
   // Relacionamentos
   responsaveis    Responsavel[]
   contrato        Contrato?
-  pagamentos      Pagamento[]
+  boletos         Boletos[]
   notas           Nota[]
   atividadesExtra AlunoAtividadeExtra[]
   frequencias     Frequencia[]
@@ -217,9 +217,9 @@ model Contrato {
   dataFim          DateTime? // Quando termina o contrato
 
   // Descontos
-  temDesconto        Boolean  @default(false)
-  percentualDesconto Decimal? @db.Decimal(5, 2)
-  motivoDesconto     String?
+  temDesconto    Boolean  @default(false)
+  valorDesconto  Decimal? @db.Decimal(5, 2)
+  motivoDesconto String?
 
   status Boolean @default(true) // Ativo/Inativo
   ativo  Boolean @default(true)
@@ -299,9 +299,9 @@ model AlunoAtividadeExtra {
 }
 
 // ============================================
-// 8. PAGAMENTO (Parcelas de Mensalidade)
+// 8. Boletos (Parcelas de Mensalidade)
 // ============================================
-model Pagamento {
+model Boletos {
   id String @id @default(uuid())
 
   // Identificação
@@ -342,11 +342,12 @@ model Pagamento {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime @default(now()) // Soft delete
 
   @@index([alunoId])
   @@index([status])
   @@index([dataVencimento])
-  @@map("pagamentos")
+  @@map("boletos")
 }
 
 enum FormaPagamento {
@@ -397,8 +398,9 @@ model Transacao {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  pagamentos Pagamento? // Relacionamento reverso
-  histories  History[]
+  boletos         Boletos? // Relacionamento reverso
+  histories       History[]
+  formaPagamento FormaPagamento @default(DINHEIRO)
 
   @@index([escolaId])
   @@index([tipo])
@@ -511,10 +513,10 @@ model Funcionario {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  turmas        TurmaProfessor[]
-  transacoes    Transacao[] // Pagamentos de salário
-  ocorrencias   Ocorrencia[]
-  logAuditorias LogAuditoria[]
+  turmas                TurmaProfessor[]
+  transacoes            Transacao[] // Pagamentos de salário
+  ocorrencias           Ocorrencia[]
+  logAuditorias         LogAuditoria[]
   disciplinasLecionadas TurmaDisciplina[]
 
   @@index([escolaId])

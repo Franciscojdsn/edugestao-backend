@@ -23,8 +23,8 @@ import { ocorrenciaRoutes } from './routes/ocorrenciaRoutes'
 
 //Financeiro
 import { contratoRoutes } from './routes/contratoRoutes'
-import { pagamentoRoutes } from './routes/pagamentoRoutes'
-import { gerarPagamentosRoutes } from './routes/gerarPagamentosRoutes'
+import { situacaoRoutes } from './routes/situacaoRoutes'
+import { gerarBoletosRoutes } from './routes/gerarBoletosRoutes'
 import { reguaCobracaRoutes } from './routes/reguaCobracaRoutes'
 
 // Extras
@@ -84,8 +84,8 @@ app.use('/ocorrencias', ocorrenciaRoutes)
 
 // Financeiro
 app.use('/contratos', contratoRoutes)
-app.use('/pagamentos', pagamentoRoutes)
-app.use(gerarPagamentosRoutes)
+app.use('/situacao', situacaoRoutes)
+app.use(gerarBoletosRoutes)
 app.use('/regua-cobranca', reguaCobracaRoutes)
 
 //Extras

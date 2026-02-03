@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const gerarPagamentosContratoSchema = z.object({
+export const gerarBoletosContratoSchema = z.object({
   params: z.object({
     contratoId: z.string().uuid('ID de contrato inválido'),
   }),

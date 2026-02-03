@@ -1,56 +1,59 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
-import { withTenancy } from '../utils/prismaHelpers'
 
-export const pagamentoController = {
+export const situacaoController = {
 
-  // GET - listar pagamentos com paginação e filtros
+  // GET - listar boletos com paginação e filtros
   async list(req: Request, res: Response) {
-    const { page, limit, alunoId, status } = req.query as any
-    const skip = (page - 1) * limit
+    const { page = 1, limit = 10, alunoId, status } = req.query as any
+    const skip = (Number(page) - 1) * Number(limit)
 
     let where: any = {
       escolaId: req.user?.escolaId,
-      deletedAt: null,
     }
 
     if (alunoId) where.alunoId = alunoId
     if (status) where.status = status
 
-    const [pagamentos, total] = await Promise.all([
-      prisma.pagamento.findMany({
+    const [boletos, total] = await Promise.all([
+      prisma.boletos.findMany({
         where,
         skip,
-        take: limit,
+        take: Number(limit),
         include: {
           aluno: {
             select: {
               id: true,
               nome: true,
               numeroMatricula: true,
-              turma: { select: { nome: true } },
+              turma: { select: { nome: true } }
             },
           },
         },
         orderBy: { dataVencimento: 'desc' },
       }),
-      prisma.pagamento.count({ where }),
+      prisma.boletos.count({ where }),
     ])
 
     return res.json({
-      data: pagamentos,
-      meta: { total, page: page, limit: limit, totalPages: Math.ceil(total / limit) },
+      data: boletos,
+      meta: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit))
+      },
     })
   },
 
 
   // GET /pagamentos/:id - Obter detalhes de um pagamento específico
   async show(req: Request, res: Response) {
-    const  id  = req.params.id as string;
+    const id = req.params.id as string;
     const escolaId = req.user?.escolaId;
 
-    const pagamento = await prisma.pagamento.findFirst({
+    const pagamento = await prisma.boletos.findFirst({
       where: {
         id: id,
         aluno: { escolaId } // Garante que o pagamento é da escola do usuário
@@ -87,7 +90,7 @@ export const pagamentoController = {
       throw new AppError('Aluno não encontrado ou não pertence a esta escola', 404);
     }
 
-    const pagamento = await prisma.pagamento.create({
+    const pagamento = await prisma.boletos.create({
       data: {
         ...dados,
         // Caso seu schema use valorTotal e o banco peça valorBase, ajuste aqui:
@@ -102,11 +105,11 @@ export const pagamentoController = {
 
   // PUT /pagamentos/:id - Atualizar um pagamento existente
   async update(req: Request, res: Response) {
-    const  id  = req.params.id as string;
+    const id = req.params.id as string;
     const dados = req.body
     const escolaId = req.user?.escolaId;
 
-    const pagamentoExistente = await prisma.pagamento.findFirst({
+    const pagamentoExistente = await prisma.boletos.findFirst({
       where: { id: id, aluno: { escolaId } }
     });
 
@@ -114,7 +117,7 @@ export const pagamentoController = {
       throw new AppError('Pagamento não encontrado ou acesso negado', 404);
     }
 
-    const pagamento = await prisma.pagamento.update({
+    const pagamento = await prisma.boletos.update({
       where: { id: id },
       data: {
         ...dados,
@@ -126,36 +129,59 @@ export const pagamentoController = {
 
   // POST /pagamentos/:id/registrar - Registrar pagamento como pago
   async registrarPagamento(req: Request, res: Response) {
-    const  id = req.params.id as string;
-    const { dataPagamento, valorPago } = req.body
+    const id = req.params.id as string;
+    const { formaPagamento, observacoes } = req.body;
+    const escolaId = req.user?.escolaId;
+    const usuarioId = req.user?.userId;
 
-    const pagamento = await prisma.pagamento.findFirst({
-      where: {
-        id: id,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
-      },
-    })
-    if (!pagamento) throw new AppError('Pagamento não encontrado', 404)
-    if (pagamento.status === 'PAGO') throw new AppError('Pagamento já foi registrado', 400)
-
-    const pagamentoAtualizado = await prisma.pagamento.update({
+    const boleto = await prisma.boletos.findUnique({
       where: { id },
-      data: {
-        status: 'PAGO',
-        dataPagamento: new Date(dataPagamento),
-        valorPago,
-      },
-    })
+      include: { aluno: true }
+    });
 
-    return res.json(pagamentoAtualizado)
+
+    if (!boleto) throw new AppError('Boleto não encontrado', 404)
+    if (boleto.status === 'PAGO') throw new AppError('Boleto já foi pago', 400)
+
+    // 2. Executar Transação (Garante integridade financeira)
+    const resultado = await prisma.$transaction(async (tx) => {
+
+      // A. Criar o registro na tabela de Transações (Fluxo de Caixa / Auditoria)
+      const transacao = await tx.transacao.create({
+        data: {
+          tipo: 'ENTRADA',
+          valor: boleto.valorTotal,
+          motivo: 'MENSALIDADE',
+          observacao: `Pgto Boleto Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+          data: new Date(),
+          formaPagamento: formaPagamento,
+          escolaId: escolaId as string,
+        }
+      });
+
+      // B. Atualizar o status do Boleto
+      return await tx.boletos.update({
+        where: { id },
+        data: {
+          status: 'PAGO',
+          dataPagamento: new Date(),
+          valorPago: boleto.valorTotal,
+          formaPagamento,
+          observacoes,
+          transacaoId: transacao.id // Vincula o boleto à transação criada
+        }
+      });
+    });
+
+    return res.json({ message: 'Pagamento registrado com sucesso', data: resultado });
   },
 
   // POST /pagamentos/:id/cancelar - Cancelar um pagamento - soft delete
   async cancelar(req: Request, res: Response) {
-    const  id  = req.params.id as string;
+    const id = req.params.id as string;
     const escolaId = req.user?.escolaId;
 
-    const pagamento = await prisma.pagamento.findFirst({
+    const pagamento = await prisma.boletos.findFirst({
       where: {
         id,
         aluno: { escolaId, deletedAt: null },
@@ -166,7 +192,7 @@ export const pagamentoController = {
 
     if (pagamento.status === 'PAGO') throw new AppError('Não é possível cancelar pagamento já registrado', 400)
 
-    await prisma.pagamento.update({
+    await prisma.boletos.update({
       where: { id },
       data: { status: 'CANCELADO' },
     })
@@ -175,30 +201,24 @@ export const pagamentoController = {
   },
 
   // GET /pagamentos/inadimplentes - Listar alunos inadimplentes
-  async inadimplentes(req: Request, res: Response) {
+  async getInadimplentes(req: Request, res: Response) {
     const escolaId = req.user?.escolaId;
     const hoje = new Date()
 
 
-    const agregacaoInadimplentes = await prisma.pagamento.groupBy({
+    const agregacaoInadimplentes = await prisma.boletos.groupBy({
       by: ['alunoId'],
       where: {
-        status: 'VENCIDO',
+        status: 'PENDENTE',
         dataVencimento: { lt: hoje },
-        aluno: { escolaId, deletedAt: null }
       },
-      _sum: {
-        valorTotal: true
-      },
-      _count: {
-        id: true
-      }
+      _sum: { valorTotal: true },
+      _count: { id: true }
     });
 
     if (agregacaoInadimplentes.length === 0) {
       return res.json({ totalGeralDevido: 0, quantidadeAlunos: 0, inadimplentes: [] });
     }
-
     // Alunos inadimplentes detalhados
     const alunosIds = agregacaoInadimplentes.map(item => item.alunoId);
 
@@ -215,6 +235,7 @@ export const pagamentoController = {
         }
       }
     });
+
     // 3. Montar o retorno final cruzando os dados
     const resultado = agregacaoInadimplentes.map(item => {
       const aluno = detalhesAlunos.find(a => a.id === item.alunoId);
@@ -226,17 +247,12 @@ export const pagamentoController = {
           turma: aluno?.turma?.nome
         },
         responsavel: aluno?.responsaveis[0] || null,
-        quantidadeTitulos: item._count.id,
-        totalDevido: item._sum.valorTotal
+        totalDevido: item._sum.valorTotal,
+        quantidadeBoletos: item._count.id
       };
     });
 
-    const totalGeralDevido = resultado.reduce((acc, curr) => acc + Number(curr.totalDevido), 0);
 
-    return res.json({
-      totalGeralDevido,
-      quantidadeAlunos: resultado.length,
-      data: resultado
-    });
+    return res.json(resultado);
   },
 }
