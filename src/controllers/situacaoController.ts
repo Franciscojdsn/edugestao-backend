@@ -11,6 +11,7 @@ export const situacaoController = {
 
     let where: any = {
       escolaId: req.user?.escolaId,
+      deletedAt: null,
     }
 
     if (alunoId) where.alunoId = alunoId
@@ -132,13 +133,11 @@ export const situacaoController = {
     const id = req.params.id as string;
     const { formaPagamento, observacoes } = req.body;
     const escolaId = req.user?.escolaId;
-    const usuarioId = req.user?.userId;
 
     const boleto = await prisma.boletos.findUnique({
       where: { id },
       include: { aluno: true }
     });
-
 
     if (!boleto) throw new AppError('Boleto não encontrado', 404)
     if (boleto.status === 'PAGO') throw new AppError('Boleto já foi pago', 400)
@@ -254,5 +253,45 @@ export const situacaoController = {
 
 
     return res.json(resultado);
+  },
+
+  async estornarPagamento(req: Request, res: Response) {
+    const id = req.params.id as string;
+    const escolaId = req.user?.escolaId;
+
+    const boleto = await prisma.boletos.findUnique({
+      where: { id },
+      include: { aluno: true }
+    });
+
+    if (!boleto) throw new AppError('Boleto não encontrado', 404);
+    if (boleto.status !== 'PAGO') throw new AppError('Apenas boletos pagos podem ser estornados', 400);
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Criar Transação de SAÍDA (Anulação do saldo no caixa)
+      await tx.transacao.create({
+        data: {
+          tipo: 'SAIDA',
+          valor: boleto.valorTotal,
+          motivo: `ESTORNO: Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+          observacao: `Estorno realizado via sistema.`,
+          escolaId: escolaId as string,
+          data: new Date(),
+        }
+      });
+
+      // 2. Voltar o boleto para PENDENTE
+      return await tx.boletos.update({
+        where: { id },
+        data: {
+          status: 'PENDENTE',
+          dataPagamento: null,
+          valorPago: null,
+          transacaoId: null, // Desvincula para permitir novo pagamento
+        }
+      });
+    });
+
+    return res.json({ message: 'Pagamento estornado com sucesso', data: resultado });
   },
 }

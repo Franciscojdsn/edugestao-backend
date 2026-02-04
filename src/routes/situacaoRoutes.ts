@@ -21,5 +21,6 @@ router.post('/', validate(criarPagamentoSchema), situacaoController.create)
 router.put('/:id', validate(atualizarPagamentoSchema), situacaoController.update)
 router.post('/:id/registrar', validate(registrarPagamentoSchema), situacaoController.registrarPagamento)
 router.post('/:id/cancelar', situacaoController.cancelar)
+router.patch('/:id/estornar', situacaoController.estornarPagamento);
 
 export { router as situacaoRoutes }

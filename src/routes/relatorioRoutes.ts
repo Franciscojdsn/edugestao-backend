@@ -15,7 +15,7 @@ router.use(contextMiddleware)
 
 router.get('/financeiro', validate(relatorioFinanceiroSchema), relatorioController.financeiro)
 router.get('/pedagogico', validate(relatorioPedagogicoSchema), relatorioController.pedagogico)
-router.get('/frequencia', validate(relatorioFrequenciaSchema), relatorioController.frequencia)
+router.get('/frequencia', validate(relatorioFrequenciaSchema), relatorioController.estruturaTurmas)
 router.get('/exportar/alunos', relatorioController.exportarAlunos)
 
 export { router as relatorioRoutes }

@@ -3,8 +3,13 @@ import { prisma } from '../config/prisma'
 import { withEscolaId, withTenancy } from '../utils/prismaHelpers'
 
 export const dashboardController = {
+
+  // Visão geral do dashboard
   async geral(req: Request, res: Response) {
     const escolaId = req.user?.escolaId
+    const hoje = new Date()
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
 
     const [
       totalAlunos,
@@ -13,6 +18,10 @@ export const dashboardController = {
       totalDisciplinas,
       alunosAtivos,
       funcionariosAtivos,
+      faturamentoRealizado,
+      pendenciaBoletos,
+      receitaAvulsaPendente,
+      despesasMes,
     ] = await Promise.all([
       prisma.aluno.count({ where: withEscolaId({}) }),
       prisma.funcionario.count({ where: withEscolaId({}) }),
@@ -20,7 +29,60 @@ export const dashboardController = {
       prisma.disciplina.count({ where: withEscolaId({}) }),
       prisma.aluno.count({ where: withTenancy({}) }),
       prisma.funcionario.count({ where: withTenancy({}) }),
+
+      // 1. O que JÁ entrou no caixa (Dinheiro na mão)
+      prisma.transacao.aggregate({
+        where: {
+          escolaId,
+          tipo: 'ENTRADA',
+          data: { gte: inicioMes, lte: fimMes },
+          deletedAt: null
+        },
+        _sum: { valor: true }
+      }),
+
+      // 2. O que DEVERIA ter entrado via Boletos (Inadimplência ou A Vencer)
+      prisma.boletos.aggregate({
+        where: {
+          aluno: { escolaId },
+          status: { in: ['PENDENTE', 'VENCIDO'] }, // [CORREÇÃO] Filtro correto
+          dataVencimento: { gte: inicioMes, lte: fimMes }, // [ALTERADO] Considera o mês todo
+          deletedAt: null
+        },
+        _sum: { valorTotal: true } // [NOTA] Boletos usa valorTotal
+      }),
+
+      // 3. Receitas Avulsas Pendentes (Tabela Lancamento) [NOVO]
+      prisma.lancamento.aggregate({
+        where: {
+          escolaId,
+          tipo: 'ENTRADA',
+          status: 'PENDENTE',
+          dataVencimento: { gte: inicioMes, lte: fimMes },
+          deletedAt: null
+        },
+        _sum: { valor: true }
+      }),
+
+      // 4. Despesas do Mês (Tabela Lancamento) [NOVO]
+      prisma.lancamento.aggregate({
+        where: {
+          escolaId,
+          tipo: 'SAIDA',
+          dataVencimento: { gte: inicioMes, lte: fimMes },
+          deletedAt: null
+        },
+        _sum: { valor: true }
+      }),
     ])
+
+    const valFaturamento = Number(faturamentoRealizado._sum?.valor || 0)
+    const valPendenciaBoletos = Number(pendenciaBoletos._sum?.valorTotal || 0)
+    const valReceitaAvulsa = Number(receitaAvulsaPendente._sum?.valor || 0)
+    const valDespesas = Number(despesasMes._sum?.valor || 0)
+
+    // Saldo Projetado = (O que tenho + O que vou receber) - (O que tenho que pagar)
+    const saldoProjetado = (valFaturamento + valPendenciaBoletos + valReceitaAvulsa) - valDespesas
 
     const alunosPorTurno = await prisma.aluno.groupBy({
       by: ['turno'],
@@ -45,6 +107,14 @@ export const dashboardController = {
         alunosDeletados: totalAlunos - alunosAtivos,
         funcionariosDeletados: totalFuncionarios - funcionariosAtivos,
       },
+      // [NOVO] Objeto dedicado ao financeiro para facilitar o frontend
+      financeiro: {
+        faturamentoRealizado: valFaturamento,
+        aReceber: valPendenciaBoletos + valReceitaAvulsa, // Soma boletos e avulsos
+        despesasTotal: valDespesas,
+        saldoProjetado: saldoProjetado,
+        inadimplenciaBoletos: valPendenciaBoletos // Mantido para retrocompatibilidade se precisar
+      },
       alunosPorTurno: alunosPorTurno.map(t => ({
         turno: t.turno,
         quantidade: t._count,
@@ -56,6 +126,7 @@ export const dashboardController = {
     })
   },
 
+  // Listagem de turmas com alunos inscritos
   async turmas(req: Request, res: Response) {
     const turmas = await prisma.turma.findMany({
       where: withEscolaId({}),
@@ -90,6 +161,7 @@ export const dashboardController = {
     })
   },
 
+  // Listagem de aniversariantes do mês
   async aniversariantes(req: Request, res: Response) {
     const { mes } = req.query
     const mesAtual = mes ? Number(mes) : new Date().getMonth() + 1

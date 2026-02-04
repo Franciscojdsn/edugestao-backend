@@ -44,6 +44,7 @@ model Escola {
   ocorrencias     Ocorrencia[]
   eventos         Evento[]
   logAuditorias   LogAuditoria[]
+  lancamentos     Lancamento[]
 
   @@map("escolas")
 }
@@ -146,6 +147,7 @@ model Aluno {
   matricula       Matricula?
   rematriculas    Rematricula[]
   ocorrencias     Ocorrencia[]
+  lancamentos     Lancamento[]
 
   @@index([escolaId])
   @@index([turmaId])
@@ -342,7 +344,7 @@ model Boletos {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  deletedAt DateTime @default(now()) // Soft delete
+  deletedAt DateTime ? // Soft delete
 
   @@index([alunoId])
   @@index([status])
@@ -398,8 +400,8 @@ model Transacao {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  boletos         Boletos? // Relacionamento reverso
-  histories       History[]
+  boletos        Boletos? // Relacionamento reverso
+  histories      History[]
   formaPagamento FormaPagamento @default(DINHEIRO)
 
   @@index([escolaId])
@@ -518,6 +520,7 @@ model Funcionario {
   ocorrencias           Ocorrencia[]
   logAuditorias         LogAuditoria[]
   disciplinasLecionadas TurmaDisciplina[]
+  lancamentos           Lancamento[]
 
   @@index([escolaId])
   @@index([cargo])
@@ -936,7 +939,7 @@ enum TipoEvento {
 }
 
 // ============================================
-// 20. logAuditoria 
+// 21. logAuditoria 
 // ============================================
 
 model LogAuditoria {
@@ -957,4 +960,39 @@ model LogAuditoria {
   @@index([entidade])
   @@index([createdAt])
   @@map("logs_auditoria")
+}
+
+// ============================================
+// 22. LANÇAMENTOS (Gestão de Entradas e Saídas Avulsas)
+// ============================================
+
+model Lancamento {
+  id        String        @id @default(uuid())
+  descricao String // Ex: "Venda de Fardamento" ou "Manutenção Ar-condicionado"
+  tipo      TipoTransacao // ENTRADA ou SAIDA (Reutilizando seu Enum existente)
+  categoria String // Ex: 'VENDA', 'MATERIAL', 'INFRAESTRUTURA'
+  valor     Decimal       @db.Decimal(10, 2)
+
+  dataVencimento DateTime // Quando o dinheiro deve entrar ou sair
+  dataLiquidacao DateTime? // Quando efetivamente foi pago/recebido
+  status         StatusPagamento @default(PENDENTE) // PENDENTE, PAGO, CANCELADO
+
+  // Relacionamentos
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  // Opcional: Se for uma entrada de um Aluno específico ou saída para um Funcionário
+  alunoId       String?
+  aluno         Aluno?       @relation(fields: [alunoId], references: [id], onDelete: SetNull)
+  funcionarioId String?
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([escolaId])
+  @@index([tipo])
+  @@index([status])
+  @@map("lancamentos")
 }
