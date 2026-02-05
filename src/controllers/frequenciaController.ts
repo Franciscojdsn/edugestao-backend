@@ -1,258 +1,181 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
-import { withEscolaId, withTenancy } from '../utils/prismaHelpers'
+import { withEscolaId } from '../utils/prismaHelpers'
 
 export const frequenciaController = {
-  /**
-   * POST /frequencias/chamada
-   * Registra presença/falta de múltiplos alunos de uma vez
-   */
+
+  // Registrar a chamada (Presença/Ausência) - Modo Tradicional
   async registrarChamada(req: Request, res: Response) {
     const { turmaId, disciplinaId, data, presencas } = req.body;
+    const escolaId = req.user?.escolaId;
 
-    // 1. Verificar turma
-    const turma = await prisma.turma.findFirst({
-      where: withEscolaId({ id: turmaId }),
-    });
-    if (!turma) throw new AppError('Turma não encontrada', 404);
-
-    // 2. Verificar disciplina (se informada)
-    if (disciplinaId) {
-      const disciplina = await prisma.disciplina.findFirst({
-        where: withEscolaId({ id: disciplinaId }),
-      });
-      if (!disciplina) throw new AppError('Disciplina não encontrada', 404);
-    }
-
-    // 3. Normalizar Data (Zerar horas para evitar erros no @@unique)
     const dataFormatada = new Date(data);
     dataFormatada.setUTCHours(0, 0, 0, 0);
 
-    const frequenciasProcessadas = [];
-
-    for (const presenca of presencas) {
-      // 4. Verificar se aluno pertence à turma
-      const aluno = await prisma.aluno.findFirst({
-        where: withTenancy({
-          id: presenca.alunoId,
-          turmaId,
-        }),
-      });
-
-      if (!aluno) continue;
-
-      // 5. APLICAR UPSERT
-      // 1. Buscar se já existe registro (findFirst aceita disciplinaId como null ou string)
+    // ALTERAÇÃO: Loop com create/update manual se o upsert der erro de tipagem no seu schema
+    const promessas = presencas.map(async (p: any) => {
       const existente = await prisma.frequencia.findFirst({
-        where: {
-          alunoId: presenca.alunoId,
-          turmaId,
-          data: dataFormatada,
-          disciplinaId: disciplinaId ?? null, // Aqui o null funciona perfeitamente
-        },
+        where: { alunoId: p.alunoId, data: dataFormatada, disciplinaId }
       });
-
-      let registro;
 
       if (existente) {
-        // 2. Se existe, atualizamos pelo ID primário
-        registro = await prisma.frequencia.update({
+        return prisma.frequencia.update({
           where: { id: existente.id },
-          data: {
-            presente: presenca.presente,
-            justificativa: presenca.justificativa,
-          },
+          data: { presente: p.presente }
         });
       } else {
-        // 3. Se não existe, criamos um novo
-        registro = await prisma.frequencia.create({
+        return prisma.frequencia.create({
           data: {
-            alunoId: presenca.alunoId,
-            turmaId,
-            disciplinaId: disciplinaId ?? null,
             data: dataFormatada,
-            presente: presenca.presente,
-            justificativa: presenca.justificativa,
-          },
+            presente: p.presente,
+            escola: { connect: { id: escolaId } },
+            aluno: { connect: { id: p.alunoId } }, // ALTERAÇÃO: Uso do connect
+            turma: { connect: { id: turmaId } }, // ALTERAÇÃO: Uso do connect
+            disciplina: { connect: { id: disciplinaId } }, // ALTERAÇÃO: Uso do connect
+          }
         });
       }
-
-      frequenciasProcessadas.push(registro);
-    }
-
-    return res.status(201).json({
-      message: `Chamada processada: ${frequenciasProcessadas.length} aluno(s)`,
-      data: dataFormatada,
-      turma: { id: turma.id, nome: turma.nome },
-      frequencias: frequenciasProcessadas,
     });
+
+    const resultado = await Promise.all(promessas);
+    return res.json({ mensagem: 'Chamada registrada', total: resultado.length });
   },
 
-  /**
-   * GET /frequencias
-   * Lista registros de frequência com filtros
-   */
-  async list(req: Request, res: Response) {
-    const { page = 1, limit = 50, turmaId, alunoId, dataInicio, dataFim } = req.query
-    const skip = (Number(page) - 1) * Number(limit)
-    const turmaIdFormatado = Array.isArray(turmaId) ? turmaId[0] : turmaId
-    const alunoIdFormatado = Array.isArray(alunoId) ? alunoId[0] : alunoId
+  // Registrar a chamada - Modo Inteligente (Detecta Fundamental I ou II)
+  async prepararChamada(req: Request, res: Response) {
+    const professorId = req.user?.userId; // Assumindo que o ID do professor está no token
+    const escolaId = req.user?.escolaId;
 
+    // 1. Pegar o momento atual (Dia e Hora)
+    const agora = new Date();
+    const diaSemana = agora.getDay(); // 0 (Dom) a 6 (Sáb)
 
-    let where: any = {}
+    // No Fundamental I/II as aulas são durante a semana (1-5 ou 6)
+    if (diaSemana === 0) throw new AppError('Não há aulas agendadas para domingo', 400);
 
-    if (turmaIdFormatado) where.turmaId = turmaIdFormatado
-    if (alunoIdFormatado) where.alunoId = alunoIdFormatado
+    const horaAtual = agora.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
 
-    if (dataInicio || dataFim) {
-      where.data = {}
-      if (dataInicio) where.data.gte = new Date(dataInicio as string)
-      if (dataFim) where.data.lte = new Date(dataFim as string)
-    }
-
-    where.turma = { escolaId: req.user?.escolaId }
-
-    const [frequencias, total] = await Promise.all([
-      prisma.frequencia.findMany({
-        where,
-        skip,
-        take: Number(limit),
-        include: {
-          aluno: { select: { nome: true, numeroMatricula: true } },
-          turma: { select: { nome: true } },
-          disciplina: { select: { nome: true } },
-        },
-        orderBy: { data: 'desc' },
-      }),
-      prisma.frequencia.count({ where }),
-    ])
-
-    return res.json({
-      data: frequencias,
-      meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
-    })
-  },
-
-  /**
-   * GET /frequencias/alunos/:alunoId/relatorio
-   * Relatório de frequência de um aluno
-   */
-  async relatorioAluno(req: Request, res: Response) {
-    const { alunoId } = req.params
-    const idFormatado = Array.isArray(alunoId) ? alunoId[0] : alunoId
-    const { mesInicio, mesFim } = req.query
-
-    const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id: idFormatado }),
-      select: {
-        id: true,
-        nome: true,
-        numeroMatricula: true,
-        turma: { select: { nome: true } },
+    // 2. Procurar a aula ativa na Grade Horária
+    const aulaAtiva = await prisma.gradeHoraria.findFirst({
+      where: {
+        escolaId,
+        diaSemana,
+        horarioInicio: { lte: horaAtual },
+        horarioFim: { gte: horaAtual },
+        turmaDisciplina: { professorId: professorId }
       },
-    })
-
-    if (!aluno) throw new AppError('Aluno não encontrado', 404)
-
-    let where: any = { alunoId: idFormatado }
-
-    if (mesInicio || mesFim) {
-      where.data = {}
-      if (mesInicio) {
-        const [ano, mes] = (mesInicio as string).split('-')
-        where.data.gte = new Date(Number(ano), Number(mes) - 1, 1)
-      }
-      if (mesFim) {
-        const [ano, mes] = (mesFim as string).split('-')
-        where.data.lte = new Date(Number(ano), Number(mes), 0, 23, 59, 59)
-      }
-    }
-
-    const frequencias = await prisma.frequencia.findMany({
-      where,
       include: {
-        disciplina: { select: { nome: true } },
-      },
-      orderBy: { data: 'asc' },
-    })
-
-    const totalDias = frequencias.length
-    const presencas = frequencias.filter(f => f.presente).length
-    const faltas = totalDias - presencas
-    const percentualPresenca = totalDias > 0 ? (presencas / totalDias) * 100 : 0
-
-    return res.json({
-      aluno,
-      periodo: {
-        inicio: mesInicio || 'Início',
-        fim: mesFim || 'Fim',
-      },
-      resumo: {
-        totalDias,
-        presencas,
-        faltas,
-        percentualPresenca: Number(percentualPresenca.toFixed(2)),
-      },
-      detalhes: frequencias,
-    })
-  },
-
-  /**
-   * GET /frequencias/turmas/:turmaId/resumo
-   * Resumo de frequência de toda turma
-   */
-  async resumoTurma(req: Request, res: Response) {
-    const { turmaId } = req.params
-    const idFormatado = Array.isArray(turmaId) ? turmaId[0] : turmaId
-    const { data } = req.query
-
-    const turma = await prisma.turma.findFirst({
-      where: withEscolaId({ id: idFormatado }),
-      include: {
-        alunos: {
-          where: { deletedAt: null },
+        turma: {
           select: {
             id: true,
             nome: true,
-            numeroMatricula: true,
-          },
+            alunos: {
+              where: { deletedAt: { equals: null } },
+              select: { id: true, nome: true, numeroMatricula: true },
+              orderBy: { nome: 'asc' }
+            }
+          }
         },
-      },
-    })
-
-    if (!turma) throw new AppError('Turma não encontrada', 404)
-
-    let where: any = { turmaId: idFormatado }
-    if (data) where.data = new Date(data as string)
-
-    const frequencias = await prisma.frequencia.findMany({
-      where,
-      include: {
-        aluno: { select: { nome: true, numeroMatricula: true } },
-      },
-    })
-
-    // Agrupar por aluno
-    const resumoPorAluno = turma.alunos.map(aluno => {
-      const freqAluno = frequencias.filter(f => f.alunoId === aluno.id)
-      const presencas = freqAluno.filter(f => f.presente).length
-      const faltas = freqAluno.length - presencas
-
-      return {
-        aluno,
-        presencas,
-        faltas,
-        total: freqAluno.length,
-        percentual: freqAluno.length > 0 ? Number(((presencas / freqAluno.length) * 100).toFixed(2)) : 0,
+        turmaDisciplina: {
+          include: { disciplina: { select: { id: true, nome: true } } }
+        }
       }
-    })
+    });
+
+    if (!aulaAtiva) {
+      throw new AppError('Nenhuma aula agendada para este horário ou você não é o professor desta disciplina.', 404);
+    }
+
+    // 3. Retornar tudo "mastigado" para o Frontend
+    return res.json({
+      infoAula: {
+        turmaId: aulaAtiva.turmaId,
+        turmaNome: aulaAtiva.turma.nome,
+        disciplinaId: aulaAtiva.turmaDisciplina.disciplinaId,
+        disciplinaNome: aulaAtiva.turmaDisciplina.disciplina.nome,
+        horario: `${aulaAtiva.horarioInicio} - ${aulaAtiva.horarioFim}`
+      },
+      alunos: aulaAtiva.turma.alunos
+    });
+  },
+
+  // Salvar a chamada inteligente (Fundamental I ou II) - Modo Inteligente
+  async salvarChamadaInteligente(req: Request, res: Response) {
+    const { turmaId, disciplinaId, presencas, data } = req.body;
+
+    // Resolvendo o erro de tipo 'id' diretamente aqui:
+    const usuario = req.user as { userId: string; escolaId: string };
+    const escolaId = usuario.escolaId;
+
+    const dataFormatada = new Date(data);
+    dataFormatada.setUTCHours(0, 0, 0, 0);
+
+    // 1. Detectar se é Fundamental I ou II por contagem de professores
+    const professoresDistintos = await prisma.turmaDisciplina.groupBy({
+      by: ['professorId'],
+      where: { turmaId }
+    });
+
+    const isFundamental1 = professoresDistintos.length === 1;
+
+    // 2. Executar gravação
+    await prisma.$transaction(
+      presencas.map((p: any) => {
+        return prisma.frequencia.upsert({
+          where: {
+            // 1. Usando a chave composta EXATA que o seu Prisma gerou
+            alunoId_turmaId_data_disciplinaId: {
+              alunoId: p.alunoId,
+              turmaId: turmaId,
+              data: dataFormatada,
+              disciplinaId: disciplinaId
+            }
+          },
+          update: { presente: p.presente },
+          create: {
+            presente: p.presente,
+            data: dataFormatada,
+            // 2. Usando connect em tudo para evitar o erro de 'string' vs 'undefined'
+            aluno: { connect: { id: p.alunoId } },
+            turma: { connect: { id: turmaId } },
+            disciplina: { connect: { id: disciplinaId } },
+            escola: { connect: { id: escolaId } } // Alterado de escolaId: escolaId para connect
+          }
+        });
+      })
+    );
 
     return res.json({
-      turma: { id: turma.id, nome: turma.nome },
-      data: data || 'Todas',
-      totalAlunos: turma.alunos.length,
-      resumo: resumoPorAluno,
-    })
+      sucesso: true,
+      modo: isFundamental1 ? "Fundamental I" : "Fundamental II"
+    });
   },
+
+  async listarChamadaRealizada(req: Request, res: Response) {
+    const { turmaId, disciplinaId, data } = req.query;
+    const escolaId = req.user?.escolaId;
+
+    const dataFormatada = new Date(data as string);
+    dataFormatada.setUTCHours(0, 0, 0, 0);
+
+    const historico = await prisma.frequencia.findMany({
+      where: {
+        escolaId,
+        turmaId: turmaId as string,
+        disciplinaId: disciplinaId as string,
+        data: dataFormatada
+      },
+      include: {
+        aluno: { select: { id: true, nome: true } }
+      },
+      orderBy: { aluno: { nome: 'asc' } }
+    });
+
+    return res.json(historico);
+  }
 }

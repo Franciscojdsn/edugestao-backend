@@ -204,21 +204,19 @@ export const comunicadoController = {
                 select: { id: true },
             })
         } else if (destinatarios === 'INADIMPLENTES') {
-            // Buscar alunos com pagamentos vencidos
             const hoje = new Date()
-            hoje.setHours(0, 0, 0, 0)
-
-            const pagamentosVencidos = await prisma.pagamento.findMany({
+            // Busca boletos vencidos em vez da tabela 'pagamento' antiga
+            const inadimplentes = await prisma.boletos.findMany({
                 where: {
-                    status: 'PENDENTE',
+                    status: { in: ['PENDENTE', 'VENCIDO'] },
                     dataVencimento: { lt: hoje },
-                    aluno: { escolaId, deletedAt: null },
+                    deletedAt: null,
+                    aluno: { escolaId }
                 },
                 select: { alunoId: true },
                 distinct: ['alunoId'],
             })
-
-            alunos = pagamentosVencidos.map(p => ({ id: p.alunoId }))
+            alunos = inadimplentes.map(b => ({ id: b.alunoId }))
         }
 
         if (alunos.length === 0) {

@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
 
+// Lógica de escalonamento baseada em dias de atraso
 function getEscalation(diasVencidos: number) {
   if (diasVencidos <= 5) {
     return {
@@ -29,118 +30,76 @@ function getEscalation(diasVencidos: number) {
   }
 }
 
-export const reguaCobracaController = {
+export const notificacaoAutomaticaController = {
+  // Lista quem está devendo para visualização do gestor
   async verificarPendencias(req: Request, res: Response) {
     const escolaId = req.user?.escolaId
     const hoje = new Date()
-    hoje.setHours(0, 0, 0, 0)
 
-    const pagamentosVencidos = await prisma.pagamento.findMany({
+    const boletosVencidos = await prisma.boletos.findMany({
       where: {
-        status: 'PENDENTE',
+        status: { in: ['PENDENTE', 'VENCIDO'] },
         dataVencimento: { lt: hoje },
         aluno: { escolaId, deletedAt: null },
+        deletedAt: null
       },
       include: {
-        aluno: {
-          select: {
-            id: true,
-            nome: true,
-            numeroMatricula: true,
-            responsaveis: {
-              where: { isResponsavelFinanceiro: true },
-              select: { nome: true, telefone1: true, email: true },
-            },
-          },
-        },
+        aluno: { select: { id: true, nome: true, responsaveis: { where: { isResponsavelFinanceiro: true } } } }
       },
-      orderBy: { dataVencimento: 'asc' },
+      orderBy: { dataVencimento: 'asc' }
     })
 
-    const pendencias = pagamentosVencidos.map(pag => {
-      const diasVencidos = Math.floor(
-        (hoje.getTime() - pag.dataVencimento.getTime()) / (1000 * 60 * 60 * 24)
-      )
+    const pendencias = boletosVencidos.map(bol => {
+      const diasVencidos = Math.floor((hoje.getTime() - bol.dataVencimento.getTime()) / (1000 * 60 * 60 * 24))
       const escalation = getEscalation(diasVencidos)
-
       return {
-        pagamento: {
-          id: pag.id,
-          referencia: pag.referencia,
-          valorTotal: pag.valorTotal,
-          dataVencimento: pag.dataVencimento,
-        },
-        aluno: pag.aluno,
+        boletoId: bol.id,
+        valor: bol.valorTotal,
         diasVencidos,
-        ...escalation,
+        ...escalation
       }
     })
 
-    const resumo = {
-      total: pendencias.length,
-      lembrete: pendencias.filter(p => p.nivel === 'LEMBRETE').length,
-      aviso: pendencias.filter(p => p.nivel === 'AVISO').length,
-      avisoFormal: pendencias.filter(p => p.nivel === 'AVISO_FORMAL').length,
-      critico: pendencias.filter(p => p.nivel === 'CRITICO').length,
-      valorTotalPendente: Number(
-        pendencias.reduce((s, p) => s + Number(p.pagamento.valorTotal), 0).toFixed(2)
-      ),
-    }
-
-    return res.json({ resumo, pendencias })
+    return res.json({ total: pendencias.length, pendencias })
   },
 
-  async gerarNotificacoes(req: Request, res: Response) {
+  // Dispara lembretes para os alunos que estão com boletos vencidos
+  async dispararLembretes(req: Request, res: Response) {
     const escolaId = req.user?.escolaId
     const hoje = new Date()
     hoje.setHours(0, 0, 0, 0)
 
-    const pagamentosVencidos = await prisma.pagamento.findMany({
-      where: {
-        status: 'PENDENTE',
-        dataVencimento: { lt: hoje },
-        aluno: { escolaId, deletedAt: null },
-      },
-      include: { aluno: { select: { id: true, nome: true } } },
+    const boletos = await prisma.boletos.findMany({
+      where: { status: { in: ['PENDENTE', 'VENCIDO'] }, dataVencimento: { lt: hoje }, deletedAt: null },
+      include: { aluno: true }
     })
 
-    let totalNotificacoes = 0
+    // Otimização: Criar em lote (batch) após filtrar duplicados
+    let criados = 0
+    for (const bol of boletos) {
+      const dias = Math.floor((hoje.getTime() - bol.dataVencimento.getTime()) / (1000 * 60 * 60 * 24))
+      const esc = getEscalation(dias)
 
-    for (const pag of pagamentosVencidos) {
-      const diasVencidos = Math.floor(
-        (hoje.getTime() - pag.dataVencimento.getTime()) / (1000 * 60 * 60 * 24)
-      )
-      const escalation = getEscalation(diasVencidos)
-
-      // Evitar duplicatas do mesmo dia
-      const existente = await prisma.comunicado.findFirst({
-        where: {
-          alunoId: pag.aluno.id,
-          titulo: { contains: pag.referencia },
-          dataEnvio: { gte: new Date(hoje) },
-        },
+      const jaNotificado = await prisma.comunicado.findFirst({
+        where: { alunoId: bol.alunoId, titulo: { contains: 'Vencimento' }, createdAt: { gte: hoje } }
       })
 
-      if (!existente) {
+      if (!jaNotificado) {
         await prisma.comunicado.create({
           data: {
-            titulo: `Mensalidade Vencida - ${pag.referencia}`,
-            mensagem: escalation.mensagem,
+            titulo: `Lembrete de Vencimento - ${bol.id.substring(0, 8)}`,
+            mensagem: esc.mensagem,
             tipo: 'FINANCEIRO',
-            prioridade: escalation.prioridade as any,
+            prioridade: esc.prioridade as any,
             escolaId: escolaId!,
-            alunoId: pag.aluno.id,
-          },
+            alunoId: bol.alunoId
+          }
         })
-        totalNotificacoes++
+        criados++
       }
     }
 
-    return res.json({
-      message: `${totalNotificacoes} notificação(s) gerada(s)`,
-      totalNotificacoes,
-      totalPagamentosVencidos: pagamentosVencidos.length,
-    })
+    return res.json({ enviados: criados })
   },
 
   async resumoPendencias(req: Request, res: Response) {
@@ -153,19 +112,19 @@ export const reguaCobracaController = {
     if (turmaId) whereAluno.turmaId = turmaId
 
     const [totalReceita, totalPago, totalPendente, totalVencido] = await Promise.all([
-      prisma.pagamento.aggregate({
+      prisma.boletos.aggregate({
         where: { aluno: whereAluno },
         _sum: { valorTotal: true },
       }),
-      prisma.pagamento.aggregate({
+      prisma.boletos.aggregate({
         where: { aluno: whereAluno, status: 'PAGO' },
         _sum: { valorPago: true },
       }),
-      prisma.pagamento.aggregate({
+      prisma.boletos.aggregate({
         where: { aluno: whereAluno, status: 'PENDENTE', dataVencimento: { gte: hoje } },
         _sum: { valorTotal: true },
       }),
-      prisma.pagamento.aggregate({
+      prisma.boletos.aggregate({
         where: { aluno: whereAluno, status: 'PENDENTE', dataVencimento: { lt: hoje } },
         _sum: { valorTotal: true },
       }),
@@ -192,7 +151,7 @@ export const reguaCobracaController = {
     const { pagamentoId } = req.params
     const idFormatado = Array.isArray(pagamentoId) ? pagamentoId[0] : pagamentoId
 
-    const pagamento = await prisma.pagamento.findFirst({
+    const pagamento = await prisma.boletos.findFirst({
       where: {
         id: idFormatado,
         aluno: { escolaId: req.user?.escolaId, deletedAt: null },

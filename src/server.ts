@@ -25,7 +25,7 @@ import { ocorrenciaRoutes } from './routes/ocorrenciaRoutes'
 import { contratoRoutes } from './routes/contratoRoutes'
 import { situacaoRoutes } from './routes/situacaoRoutes'
 import { gerarBoletosRoutes } from './routes/gerarBoletosRoutes'
-import { reguaCobracaRoutes } from './routes/reguaCobracaRoutes'
+import { notificacaoAutomaticaRoutes } from './routes/notificacaoAutomaticaRoutes'
 
 // Extras
 import { atividadeExtraRoutes } from './routes/atividadeExtraRoutes'
@@ -86,7 +86,7 @@ app.use('/ocorrencias', ocorrenciaRoutes)
 app.use('/contratos', contratoRoutes)
 app.use('/situacao', situacaoRoutes)
 app.use(gerarBoletosRoutes)
-app.use('/regua-cobranca', reguaCobracaRoutes)
+app.use('/notificacao-automatica', notificacaoAutomaticaRoutes)
 
 //Extras
 app.use('/atividades-extra', atividadeExtraRoutes)

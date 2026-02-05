@@ -9,6 +9,7 @@ router.use(contextMiddleware)
 
 router.get('/geral', dashboardController.geral)
 router.get('/turmas', dashboardController.turmas)
+router.get('/pedagogico', dashboardController.pedagogico)
 router.get('/aniversariantes', dashboardController.aniversariantes)
 
 export { router as dashboardRoutes }

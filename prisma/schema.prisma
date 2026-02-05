@@ -45,6 +45,8 @@ model Escola {
   eventos         Evento[]
   logAuditorias   LogAuditoria[]
   lancamentos     Lancamento[]
+  frequencias     Frequencia[]
+  gradeHorarias   GradeHoraria[]
 
   @@map("escolas")
 }
@@ -342,9 +344,9 @@ model Boletos {
   transacaoId String?    @unique // Quando pago, gera transação
   transacao   Transacao? @relation(fields: [transacaoId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime ? // Soft delete
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
 
   @@index([alunoId])
   @@index([status])
@@ -465,18 +467,20 @@ model Turma {
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   // Relacionamentos
-  alunos      Aluno[]
-  professores TurmaProfessor[]
-  disciplinas TurmaDisciplina[]
-  notas       Nota[]
-  frequencias Frequencia[]
-  comunicados Comunicado[]
-  matriculas  Matricula[]
-  eventos     Evento[]
+  alunos        Aluno[]
+  professores   TurmaProfessor[]
+  disciplinas   TurmaDisciplina[]
+  notas         Nota[]
+  frequencias   Frequencia[]
+  comunicados   Comunicado[]
+  matriculas    Matricula[]
+  eventos       Evento[]
+  gradeHorarias GradeHoraria[]
 
   @@index([escolaId])
   @@index([anoLetivo])
@@ -599,6 +603,8 @@ model TurmaDisciplina {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  horarios GradeHoraria[]
+
   @@unique([turmaId, disciplinaId])
   @@index([turmaId])
   @@index([disciplinaId])
@@ -662,12 +668,16 @@ model Frequencia {
   disciplinaId String?
   disciplina   Disciplina? @relation(fields: [disciplinaId], references: [id], onDelete: SetNull)
 
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([alunoId, turmaId, data, disciplinaId])
   @@index([alunoId])
   @@index([turmaId])
+  @@index([escolaId])
   @@index([data])
   @@map("frequencias")
 }
@@ -995,4 +1005,30 @@ model Lancamento {
   @@index([tipo])
   @@index([status])
   @@map("lancamentos")
+}
+
+// ============================================
+// 23. Grade Horária
+// ============================================
+
+model GradeHoraria {
+  id            String @id @default(uuid())
+  diaSemana     Int // 1 (Segunda) a 5 (Sexta) ou 6 (Sábado)
+  horarioInicio String // Ex: "07:30"
+  horarioFim    String // Ex: "08:20"
+
+  // Conecta com o vínculo que você já criou (Turma + Disciplina + Professor)
+  turmaDisciplinaId String
+  turmaDisciplina   TurmaDisciplina @relation(fields: [turmaDisciplinaId], references: [id], onDelete: Cascade)
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  @@index([escolaId])
+  @@index([turmaDisciplinaId])
+  @@index([turmaId])
+  @@map("grades_horarias")
 }
