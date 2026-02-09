@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
+import { withEscolaId } from '../utils/prismaHelpers'
 
 export const turmaDisciplinaController = {
   /**
@@ -9,24 +10,23 @@ export const turmaDisciplinaController = {
    */
   async vincular(req: Request, res: Response) {
     const turmaId = req.params.turmaId as string;
-    const { disciplinaId, professorId } = req.body as any; // professorId agora é essencial
-    const escolaId = req.user?.escolaId;
+    const { disciplinaId, professorId } = req.body;
 
-    // 1. Validar se a Turma pertence à escola
+    // 1. Validar se a Turma pertence à escola usando o helper
     const turma = await prisma.turma.findFirst({
-      where: { id: turmaId, escolaId },
+      where: withEscolaId({ id: turmaId }),
     });
     if (!turma) throw new AppError('Turma não encontrada', 404);
 
-    // 2. Validar se a Disciplina pertence à escola
+    // 2. Validar Disciplina
     const disciplina = await prisma.disciplina.findFirst({
-      where: { id: disciplinaId, escolaId },
+      where: withEscolaId({ id: disciplinaId }),
     });
     if (!disciplina) throw new AppError('Disciplina não encontrada', 404);
 
-    // 3. Validar se o Professor pertence à escola
+    // 3. Validar Professor
     const professor = await prisma.funcionario.findFirst({
-      where: { id: professorId, escolaId },
+      where: withEscolaId({ id: professorId }),
     });
     if (!professor) throw new AppError('Professor não encontrado nesta escola', 404);
 
@@ -52,16 +52,15 @@ export const turmaDisciplinaController = {
 
   async listarDisciplinasDaTurma(req: Request, res: Response) {
     const turmaId = req.params.turmaId as string;
-    const escolaId = req.user?.escolaId ; 
 
     const disciplinas = await prisma.turmaDisciplina.findMany({
       where: {
         turmaId,
-        turma: { escolaId } // Segurança Multi-tenancy
+        turma: withEscolaId({}), // Garante que a turma pai pertence à escola
       },
       include: {
         disciplina: { select: { id: true, nome: true, cargaHoraria: true } },
-        professor: { select: { id: true, nome: true } } // Mostra quem leciona cada uma
+        professor: { select: { id: true, nome: true } }
       },
       orderBy: { disciplina: { nome: 'asc' } }
     });

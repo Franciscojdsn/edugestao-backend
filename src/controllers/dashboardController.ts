@@ -202,8 +202,6 @@ export const dashboardController = {
       })
     ])
 
-    // Cruzamento de dados: Colocar o nome da turma junto com a média (Alteração)
-    const nomesTurmas = (arguments[0] as any); // Referência fictícia para o resultado do findMany acima
     // Como o Promise.all retorna um array, vamos mapear as médias com os nomes:
     const turmas = await prisma.turma.findMany({ where: { escolaId }, select: { id: true, nome: true } });
 

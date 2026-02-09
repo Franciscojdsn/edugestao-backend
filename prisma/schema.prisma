@@ -47,6 +47,7 @@ model Escola {
   lancamentos     Lancamento[]
   frequencias     Frequencia[]
   gradeHorarias   GradeHoraria[]
+  cronogramaProva CronogramaProva[]
 
   @@map("escolas")
 }
@@ -472,15 +473,16 @@ model Turma {
   deletedAt DateTime?
 
   // Relacionamentos
-  alunos        Aluno[]
-  professores   TurmaProfessor[]
-  disciplinas   TurmaDisciplina[]
-  notas         Nota[]
-  frequencias   Frequencia[]
-  comunicados   Comunicado[]
-  matriculas    Matricula[]
-  eventos       Evento[]
-  gradeHorarias GradeHoraria[]
+  alunos          Aluno[]
+  professores     TurmaProfessor[]
+  disciplinas     TurmaDisciplina[]
+  notas           Nota[]
+  frequencias     Frequencia[]
+  comunicados     Comunicado[]
+  matriculas      Matricula[]
+  eventos         Evento[]
+  gradeHorarias   GradeHoraria[]
+  cronogramaProva CronogramaProva[]
 
   @@index([escolaId])
   @@index([anoLetivo])
@@ -579,9 +581,10 @@ model Disciplina {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  turmas      TurmaDisciplina[]
-  notas       Nota[]
-  frequencias Frequencia[]
+  turmas          TurmaDisciplina[]
+  notas           Nota[]
+  frequencias     Frequencia[]
+  cronogramaProva CronogramaProva[]
 
   @@index([escolaId])
   @@map("disciplinas")
@@ -1031,4 +1034,30 @@ model GradeHoraria {
   @@index([turmaDisciplinaId])
   @@index([turmaId])
   @@map("grades_horarias")
+}
+
+// ============================================
+// 23. Cronograma de provas
+// ============================================
+
+model CronogramaProva {
+  id    String   @id @default(uuid())
+  data  DateTime
+  ordem Int      @default(1) // 1ª prova do dia, 2ª prova do dia
+
+  turmaId String
+  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
+
+  disciplinaId String
+  disciplina   Disciplina @relation(fields: [disciplinaId], references: [id], onDelete: Cascade)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([turmaId])
+  @@index([escolaId])
+  @@map("cronogramas_provas")
 }

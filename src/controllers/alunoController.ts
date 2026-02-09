@@ -12,22 +12,22 @@ export const alunoController = {
    * GET /alunos - Listar com filtros e paginação
    */
   async list(req: Request, res: Response) {
-    const { 
-      page = 1, 
-      limit = 20, 
-      turmaId, 
-      turno, 
-      busca 
+    const {
+      page = 1,
+      limit = 20,
+      turmaId,
+      turno,
+      busca
     } = req.query
 
     const skip = (Number(page) - 1) * Number(limit)
 
     // Construir filtros
     let where: any = {}
-    
+
     if (turmaId) where.turmaId = turmaId
     if (turno) where.turno = turno
-    
+
     // Busca por nome ou matrícula
     if (busca) {
       where.OR = [
@@ -173,11 +173,14 @@ export const alunoController = {
       }
     }
 
+    const { dataNascimento } = dados;
+
     // Criar aluno
     const aluno = await prisma.aluno.create({
       data: {
         ...dados,
         escolaId,
+        dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
       },
       include: {
         turma: {
@@ -234,20 +237,13 @@ export const alunoController = {
       }
     }
 
-    // Converter dataNascimento se fornecido
-    if (dados.dataNascimento) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dados.dataNascimento)) {
-        dados.dataNascimento = new Date(dados.dataNascimento).toISOString()
-      }
-    }
-
     // Atualizar
     const aluno = await prisma.aluno.update({
       where: { id: idFormatado },
       data: {
         ...dados,
-        dataNascimento: dados.dataNascimento 
-          ? new Date(dados.dataNascimento) 
+        dataNascimento: dados.dataNascimento
+          ? new Date(dados.dataNascimento)
           : undefined,
       },
       include: {
@@ -282,7 +278,7 @@ export const alunoController = {
     // Soft delete
     await prisma.aluno.update({
       where: { id: idFormatado },
-      data: { 
+      data: {
         deletedAt: new Date(),
       },
     })

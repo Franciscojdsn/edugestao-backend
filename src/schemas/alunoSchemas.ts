@@ -19,8 +19,11 @@ export const criarAlunoSchema = z.object({
       .optional(),
 
     dataNascimento: z.preprocess((val) => {
-      // Se vier YYYY-MM-DD ou ISO, o Zod tenta converter
-      if (typeof val === "string") return new Date(val);
+      if (typeof val === "string") {
+        const dateString = val.length === 10 ? `${val}T12:00:00Z` : val;
+        const date = new Date(dateString);
+        return isNaN(date.getTime()) ? undefined : date;
+      }
       return val;
     }, z.date().optional()),
 
