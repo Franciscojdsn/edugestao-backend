@@ -63,6 +63,29 @@ async function main() {
     data: { nome: 'Prof Matemática (F2)', cargo: 'PROFESSOR', escolaId: escola.id, email: 'mat@escola.com', cpf: '12345678902', salario: 3000 }
   })
 
+  const secretaria = await prisma.funcionario.create({
+    data: {
+      nome: 'Ana Secretaria',
+      cargo: 'SECRETARIA',
+      escolaId: escola.id,
+      email: 'ana@escola.com',
+      cpf: '98765432100',
+      salario: 2500
+    }
+  })
+
+  const endereco = await prisma.endereco.create({
+    data: {
+      rua: 'Rua das Flores',
+      numero: '123',
+      bairro: 'Centro',
+      cidade: 'Recife',
+      estado: 'PE',
+      cep: '50000-000',
+    }
+  })
+
+
   // 4. TURMAS
   const turmaF1 = await prisma.turma.create({
     data: { nome: '1º Ano (Fund I)', turno: 'MATUTINO', anoLetivo: 2026, escolaId: escola.id }
@@ -78,8 +101,9 @@ async function main() {
   // 6. VÍNCULOS (TurmaDisciplina) - Fundamental I tem 1 prof para tudo, II tem vários
   const tdF1_Mat = await prisma.turmaDisciplina.create({ data: { turmaId: turmaF1.id, disciplinaId: mat.id, professorId: profF1.id } })
   const tdF1_Port = await prisma.turmaDisciplina.create({ data: { turmaId: turmaF1.id, disciplinaId: port.id, professorId: profF1.id } })
-  
+
   const tdF2_Mat = await prisma.turmaDisciplina.create({ data: { turmaId: turmaF2.id, disciplinaId: mat.id, professorId: profF2_Mat.id } })
+
 
   // 7. GRADE HORÁRIA (Para testar a chamada automática)
   // Simulando que agora é Segunda-feira, 08:00
@@ -97,6 +121,44 @@ async function main() {
   // 8. ALUNOS
   const aluno = await prisma.aluno.create({
     data: { nome: 'Aluno Teste', numeroMatricula: '2026001', escolaId: escola.id, turmaId: turmaF2.id }
+  })
+
+  const novoAluno = await prisma.aluno.create({
+    data: {
+      nome: 'Carlos Eduardo',
+      numeroMatricula: '2026002',
+      escolaId: escola.id,
+      turmaId: turmaF2.id,
+      enderecoId: endereco.id,
+      dataNascimento: new Date('2012-05-20'),
+      turno: 'VESPERTINO'
+    }
+  })
+
+  const responsavel = await prisma.responsavel.create({
+    data: {
+      nome: 'Ricardo Pai do Carlos',
+      tipo: 'PAI',
+      cpf: '111.222.333-44',
+      telefone1: '81999998888',
+      email: 'ricardo@email.com',
+      alunoId: novoAluno.id,
+      isResponsavelFinanceiro: true,
+      enderecoId: endereco.id
+    }
+  })
+
+  const contrato = await prisma.contrato.create({
+    data: {
+      alunoId: novoAluno.id,
+      responsavelFinanceiroId: responsavel.id,
+      escolaId: escola.id,
+      valorMensalidade: 600.00,
+      diaVencimento: 10,
+      dataInicio: new Date('2026-02-01'),
+      status: 'ATIVO',
+      ativo: true
+    }
   })
 
   console.log('\n🚀 SEED COMPLETO!')

@@ -56,7 +56,8 @@ export const gerarBoletosController = {
       // 4. Criar o registro de Pagamento (Boleto)
       const novoBoleto = await prisma.boletos.create({
         data: {
-          alunoId: contrato.alunoId,
+          aluno: { connect: { id: contrato.alunoId } },
+          escola: { connect: { id: escolaId } },
           referencia,
           mesReferencia: mes,
           anoReferencia: ano,

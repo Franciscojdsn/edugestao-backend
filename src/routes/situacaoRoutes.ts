@@ -8,7 +8,7 @@ import {
   atualizarPagamentoSchema,
   listarPagamentosSchema,
   registrarPagamentoSchema,
-} from '../schemas/pagamentoSchemas'
+} from '../schemas/situacaoSchemas'
 
 const router = Router()
 router.use(authMiddleware)

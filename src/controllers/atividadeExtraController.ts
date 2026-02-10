@@ -3,11 +3,9 @@ import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
 import { withEscolaId, withTenancy } from '../utils/prismaHelpers'
 
-
-
 export const atividadeExtraController = {
 
-  // GET /atividades - Listar todas as atividades extras
+  // GET /atividades
   async list(req: Request, res: Response) {
     const atividades = await prisma.atividadeExtra.findMany({
       where: withEscolaId({}),
@@ -34,9 +32,9 @@ export const atividadeExtraController = {
     return res.json({ data: atividadesComVagas, total: atividades.length })
   },
 
-  // GET /atividades/:id - Obter detalhes de uma atividade extra específica
+  // GET /atividades/:id
   async show(req: Request, res: Response) {
-    const id = req.params.id as any;
+    const id = req.params;
 
     const atividade = await prisma.atividadeExtra.findFirst({
       where: withEscolaId({ id }),
@@ -61,14 +59,20 @@ export const atividadeExtraController = {
     return res.json(atividade)
   },
 
-  // POST /atividades - Criar uma nova atividade extra
+  // POST /atividades
   async create(req: Request, res: Response) {
     const dados = req.body
     const escolaId = req.user?.escolaId
 
+    if (!escolaId) throw new AppError('Escola não identificada', 401)
+
     const atividadeExiste = await prisma.atividadeExtra.findFirst({
-      where: withEscolaId({ nome: dados.nome }),
+      where: {
+        nome: dados.nome,
+        escolaId: escolaId
+      },
     })
+
     if (atividadeExiste) throw new AppError('Atividade com este nome já existe', 400)
 
     const atividade = await prisma.atividadeExtra.create({
@@ -78,70 +82,84 @@ export const atividadeExtraController = {
     return res.status(201).json(atividade)
   },
 
-  // PUT /atividades/:id - Atualizar uma atividade extra existente
+  // PUT /atividades/:id
   async update(req: Request, res: Response) {
-    const { id, atividadeId } = req.params.id as any;
+    const id = req.params;
     const { atualizarBoletosPendentes, ...dados } = req.body
+    const escolaId = req.user?.escolaId
     const hoje = new Date()
 
+    // 1. Verificar se a atividade existe
     const atividadeExistente = await prisma.atividadeExtra.findFirst({
-      where: withEscolaId({ id }),
+      where: { id, escolaId },
     })
+
     if (!atividadeExistente) throw new AppError('Atividade não encontrada', 404)
 
+    // 2. Verificar nome duplicado (se houver alteração de nome)
     if (dados.nome && dados.nome !== atividadeExistente.nome) {
       const nomeEmUso = await prisma.atividadeExtra.findFirst({
-        where: withEscolaId({ nome: dados.nome, id: { not: id } }),
+        where: {
+          nome: dados.nome,
+          escolaId,
+          id: { not: id }
+        },
       })
       if (nomeEmUso) throw new AppError('Nome já está em uso', 400)
     }
 
+    // 3. Atualizar a atividade
     const atividade = await prisma.atividadeExtra.update({
-      where: { id },
+      where: { id: String(id) },
       data: dados,
     })
 
-    // 2. Lógica de Reajuste em Boletos Futuros
-    // Só executa se o valor mudou e o usuário solicitou a atualização
+    // 4. Lógica de Recálculo Financeiro
     if (atualizarBoletosPendentes && dados.valor && Number(dados.valor) !== Number(atividadeExistente.valor)) {
 
-      // Busca boletos PENDENTES com vencimento MAIOR que hoje
       const boletosParaAtualizar = await prisma.boletos.findMany({
         where: {
           status: 'PENDENTE',
           dataVencimento: { gt: hoje },
           aluno: {
             atividadesExtra: {
-              some: { atividadeExtraId: atividadeId }
+              some: { atividadeExtraId: id }
             }
           }
         },
         include: {
           aluno: {
             include: {
-              // Pegamos o contrato ativo para recalcular o valor base e desconto
               contrato: { where: { ativo: true } },
-              // Pegamos todas as atividades do aluno para somar o novo total
               atividadesExtra: { include: { atividadeExtra: true } }
             }
           }
         }
       })
 
-      // 3. Processar as atualizações
+      // Processa cada boleto afetado
       for (const boleto of boletosParaAtualizar) {
-        // Fazemos um cast seguro para garantir que o TS veja as relações incluídas
-        const b = boleto as any;
+        // CORREÇÃO: Removido o [0]. 
+        // Se no seu schema for 1:1, acesse direto. 
+        // Se for 1:N, verifique se o nome no include é 'contrato' ou 'contratos'
+        const aluno = boleto.aluno;
+        if (!aluno) continue;
 
-        const contrato = b.aluno?.contratos?.[0];
+        // Tenta pegar o contrato (ajuste 'contrato' para o nome exato que está no seu include/prisma)
+        const contrato = Array.isArray(aluno.contrato) ? aluno.contrato[0] : aluno.contrato;
+
         if (!contrato) continue;
 
+        // Convertendo para número com segurança (Decimal do Prisma para Number do JS)
         const valorBase = Number(contrato.valorMensalidade);
         const valorDesconto = Number(contrato.valorDesconto || 0);
 
-        // Soma todas as atividades (a que mudamos já virá com valor novo do banco)
-        const novoValorAtividades = b.aluno.atividadesExtra.reduce((acc: number, item: any) => {
-          return acc + (Number(item.atividadeExtra.valor) || 0);
+        // Tipagem explícita 'any' ou a Interface do Prisma para o 'item' do reduce
+        const novoValorAtividades = aluno.atividadesExtra.reduce((acc: number, item: any) => {
+          const valorItem = item.atividadeExtraId === id
+            ? Number(dados.valor)
+            : Number(item.atividadeExtra.valor);
+          return acc + valorItem;
         }, 0);
 
         const novoValorTotal = (valorBase + novoValorAtividades) - valorDesconto;
@@ -159,54 +177,77 @@ export const atividadeExtraController = {
     return res.json(atividade)
   },
 
-  // DELETE /atividades/:id - Soft Deletar uma atividade extra
+  // DELETE /atividades/:id
   async delete(req: Request, res: Response) {
-    const id = req.params.id as any;
+    const { id } = req.params;
+    const escolaId = req.user?.escolaId;
 
     const atividade = await prisma.atividadeExtra.findFirst({
-      where: withEscolaId({ id }),
+      where: { id: String(id), escolaId },
       include: { _count: { select: { alunos: true } } },
     })
+
     if (!atividade) throw new AppError('Atividade não encontrada', 404)
 
-    if (atividade._count.alunos > 0) {
-      throw new AppError(
-        `Não é possível deletar atividade com ${atividade._count.alunos} aluno(s) matriculado(s)`,
-        400
-      )
+    // CORREÇÃO LINHA 169: Verificação segura
+    if (atividade._count && atividade._count.alunos > 0) {
+      throw new AppError(`Não é possível excluir: existem ${atividade._count.alunos} alunos matriculados.`, 400)
     }
 
-    await prisma.atividadeExtra.delete({ where: { id } })
+    await prisma.atividadeExtra.delete({ where: { id: String(id) } })
     return res.status(204).send()
   },
 
-  // POST /atividades/:atividadeId/vincular - Vincular um aluno a uma atividade extra
+  // POST /atividades/:atividadeId/alunos
   async vincularAluno(req: Request, res: Response) {
-    const atividadeId = req.params.id as any;
-    const alunoId = req.body.id as any;
+    // Extração corrigida para bater com a rota
+    const { atividadeId } = req.params;
+    const { alunoId } = req.body;
+    const escolaId = req.user?.escolaId;
 
-    const atividade = await prisma.atividadeExtra.findFirst({
-      where: withEscolaId({ id: atividadeId }),
-      include: { _count: { select: { alunos: true } } },
-    })
-    if (!atividade) throw new AppError('Atividade não encontrada', 404)
-
-    const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id: alunoId }),
-    })
-    if (!aluno) throw new AppError('Aluno não encontrado', 404)
-
-    const vinculoExiste = await prisma.alunoAtividadeExtra.findUnique({
-      where: { alunoId_atividadeExtraId: { alunoId: alunoId, atividadeExtraId: atividadeId } },
-    })
-    if (vinculoExiste) throw new AppError('Aluno já matriculado nesta atividade', 400)
-
-    if (atividade.capacidadeMaxima && atividade._count.alunos >= atividade.capacidadeMaxima) {
-      throw new AppError('Atividade já está com capacidade máxima', 400)
+    if (!atividadeId || !alunoId) {
+      throw new AppError('Dados incompletos', 400);
     }
 
+    // 1. Validar Atividade
+    const atividade = await prisma.atividadeExtra.findFirst({
+      where: { id: String(atividadeId), escolaId },
+      include: { _count: { select: { alunos: true } } },
+    })
+
+    if (!atividade) throw new AppError('Atividade não encontrada', 404)
+
+    // 2. Validar Aluno
+    const aluno = await prisma.aluno.findFirst({
+      where: { id: String(alunoId), escolaId },
+    })
+
+    if (!aluno) throw new AppError('Aluno não encontrado', 404)
+
+    // 3. Verificar Duplicidade
+    const vinculoExiste = await prisma.alunoAtividadeExtra.findUnique({
+      where: {
+        alunoId_atividadeExtraId: {
+          alunoId: String(alunoId),
+          atividadeExtraId: String(atividadeId)
+        }
+      },
+    })
+
+    if (vinculoExiste) throw new AppError('Aluno já matriculado nesta atividade', 400)
+
+    // 4. Verificar Capacidade
+    if (atividade.capacidadeMaxima && atividade._count.alunos >= atividade.capacidadeMaxima) {
+      throw new AppError('Capacidade máxima atingida', 400)
+    }
+
+    // 5. Criar Vínculo
+    // CORREÇÃO LINHAS 250-251: Uso explícito das chaves
     const vinculo = await prisma.alunoAtividadeExtra.create({
-      data: { alunoId: alunoId, atividadeExtraId: atividadeId },
+      data: {
+        alunoId: String(alunoId),
+        atividadeExtraId: String(atividadeId)
+      },
       include: {
         aluno: { select: { nome: true, numeroMatricula: true } },
         atividadeExtra: { select: { nome: true, valor: true } },
@@ -216,33 +257,47 @@ export const atividadeExtraController = {
     return res.status(201).json(vinculo)
   },
 
-  // DELETE /atividades/:atividadeId/desvincular/:alunoId - Desvincular um aluno de uma atividade extra
+  // DELETE /atividades/:atividadeId/alunos/:alunoId
   async desvincularAluno(req: Request, res: Response) {
-    const { atividadeId, alunoId } = req.params.id as any;
+    const { atividadeId, alunoId } = req.params;
 
+    // CORREÇÃO LINHA 269: Uso correto da chave composta no Prisma
     const vinculo = await prisma.alunoAtividadeExtra.findUnique({
-      where: { alunoId_atividadeExtraId: { alunoId: alunoId, atividadeExtraId: atividadeId } },
+      where: {
+        alunoId_atividadeExtraId: {
+          alunoId: String(alunoId),
+          atividadeExtraId: String(atividadeId)
+        }
+      },
     })
+
     if (!vinculo) throw new AppError('Vínculo não encontrado', 404)
 
     await prisma.alunoAtividadeExtra.delete({
-      where: { alunoId_atividadeExtraId: { alunoId: alunoId, atividadeExtraId: atividadeId } },
+      where: {
+        alunoId_atividadeExtraId: {
+          alunoId: String(alunoId),
+          atividadeExtraId: String(atividadeId)
+        }
+      },
     })
 
     return res.status(204).send()
   },
 
-  // GET /atividades/:atividadeId/alunos - Listar alunos vinculados a uma atividade extra
+  // GET /atividades/:atividadeId/alunos
   async alunosDaAtividade(req: Request, res: Response) {
-    const atividadeId = req.params.id as any;
+    const { atividadeId } = req.params;
+    const escolaId = req.user?.escolaId;
 
     const atividade = await prisma.atividadeExtra.findFirst({
-      where: withEscolaId({ id: atividadeId }),
+      where: { id: String(atividadeId), escolaId },
     })
+
     if (!atividade) throw new AppError('Atividade não encontrada', 404)
 
-    const alunos = await prisma.alunoAtividadeExtra.findMany({
-      where: { atividadeExtraId: atividadeId },
+    const alunosVinculados = await prisma.alunoAtividadeExtra.findMany({
+      where: { atividadeExtraId: String(atividadeId) },
       include: {
         aluno: {
           select: {
@@ -258,8 +313,8 @@ export const atividadeExtraController = {
 
     return res.json({
       atividade: { id: atividade.id, nome: atividade.nome },
-      alunos: alunos.map(v => v.aluno),
-      total: alunos.length,
+      alunos: alunosVinculados.map(v => v.aluno),
+      total: alunosVinculados.length,
     })
   },
 }

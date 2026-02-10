@@ -48,6 +48,8 @@ model Escola {
   frequencias     Frequencia[]
   gradeHorarias   GradeHoraria[]
   cronogramaProva CronogramaProva[]
+  contratoes      Contrato[]
+  boletos         Boletos[]
 
   @@map("escolas")
 }
@@ -226,8 +228,9 @@ model Contrato {
   valorDesconto  Decimal? @db.Decimal(5, 2)
   motivoDesconto String?
 
-  status Boolean @default(true) // Ativo/Inativo
-  ativo  Boolean @default(true)
+  status StatusContrato @default(ATIVO)
+
+  ativo Boolean @default(true)
 
   // Relacionamentos
   transacoes Transacao[]
@@ -238,11 +241,21 @@ model Contrato {
   responsavelFinanceiroId String
   responsavelFinanceiro   Responsavel @relation(fields: [responsavelFinanceiroId], references: [id], onDelete: Restrict)
 
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([alunoId])
   @@map("contratos")
+}
+
+enum StatusContrato {
+  ATIVO
+  SUSPENSO
+  CANCELADO
+  FINALIZADO
 }
 
 // ============================================
@@ -344,6 +357,9 @@ model Boletos {
 
   transacaoId String?    @unique // Quando pago, gera transação
   transacao   Transacao? @relation(fields: [transacaoId], references: [id], onDelete: SetNull)
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

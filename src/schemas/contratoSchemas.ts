@@ -21,7 +21,6 @@ export const atualizarContratoSchema = z.object({
     diaVencimento: z.number().int().min(1).max(31).optional(),
     dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO']).optional(),
-    observacoes: z.string().max(1000).optional(),
   }),
 })
 

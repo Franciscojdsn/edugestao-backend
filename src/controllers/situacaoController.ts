@@ -91,7 +91,7 @@ export const situacaoController = {
       throw new AppError('Aluno não encontrado ou não pertence a esta escola', 404);
     }
 
-    const pagamento = await prisma.boletos.create({
+    const pagamento = await prisma.transacao.create({
       data: {
         ...dados,
         // Caso seu schema use valorTotal e o banco peça valorBase, ajuste aqui:
@@ -118,7 +118,7 @@ export const situacaoController = {
       throw new AppError('Pagamento não encontrado ou acesso negado', 404);
     }
 
-    const pagamento = await prisma.boletos.update({
+    const pagamento = await prisma.transacao.update({
       where: { id: id },
       data: {
         ...dados,

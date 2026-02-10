@@ -116,5 +116,60 @@ export const gradeHorariaController = {
       disciplinaId: aula.turmaDisciplina.disciplinaId,
       disciplinaNome: aula.turmaDisciplina.disciplina.nome
     });
-  }
+  },
+
+  async listarPorTurma(req: Request, res: Response) {
+    const turmaId = req.params.id as string;
+    const escolaId = req.user?.escolaId
+
+    const grade = await prisma.gradeHoraria.findMany({
+      where: {
+        turmaId,
+        escolaId,
+      },
+      include: {
+        turmaDisciplina: {
+          include: {
+            disciplina: { select: { nome: true } },
+            professor: { select: { nome: true } }
+          }
+        }
+      },
+      // Ordena por dia da semana (0-6) e depois pelo horário
+      orderBy: [
+        { diaSemana: 'asc' },
+        { horarioInicio: 'asc' }
+      ]
+    })
+
+    return res.json(grade)
+  },
+
+  async agendaProfessor(req: Request, res: Response) {
+    const professorId = req.user?.userId // ID vindo do token
+    const escolaId = req.user?.escolaId
+
+    const agenda = await prisma.gradeHoraria.findMany({
+      where: {
+        escolaId,
+        turmaDisciplina: {
+          professorId: professorId
+        }
+      },
+      include: {
+        turma: { select: { nome: true } },
+        turmaDisciplina: {
+          include: {
+            disciplina: { select: { nome: true } }
+          }
+        }
+      },
+      orderBy: [
+        { diaSemana: 'asc' },
+        { horarioInicio: 'asc' }
+      ]
+    })
+
+    return res.json(agenda)
+  },
 }

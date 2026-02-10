@@ -36,6 +36,18 @@ export const criarResponsavelSchema = z.object({
             .email('Email inválido')
             .optional(),
 
+        telefone1: z.string()
+            .min(10, 'Telefone inválido')
+            .max(20, 'Telefone muito longo')
+            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
+            .optional(),
+
+        telefone2: z.string()
+            .min(10, 'Telefone inválido')
+            .max(20, 'Telefone muito longo')
+            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
+            .optional(),
+
         isResponsavelFinanceiro: z.boolean()
             .default(false),
 
@@ -74,6 +86,18 @@ export const atualizarResponsavelSchema = z.object({
 
         email: z.string()
             .email('Email inválido')
+            .optional(),
+
+        telefone1: z.string()
+            .min(10, 'Telefone inválido')
+            .max(20, 'Telefone muito longo')
+            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
+            .optional(),
+
+        telefone2: z.string()
+            .min(10, 'Telefone inválido')
+            .max(20, 'Telefone muito longo')
+            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
             .optional(),
 
         isResponsavelFinanceiro: z.boolean()

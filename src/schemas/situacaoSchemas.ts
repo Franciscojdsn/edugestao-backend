@@ -2,9 +2,9 @@ import { z } from 'zod'
 
 export const criarPagamentoSchema = z.object({
   body: z.object({
-    params: z.object({ alunoId: z.string().uuid() }),
-    referencia: z.string().min(1),
-    valorTotal: z.number().positive(),
+    alunoId: z.string().uuid('ID de aluno inválido'),
+    referencia: z.string().min(1, 'Referência é obrigatória'),
+    valorTotal: z.number().positive('Valor deve ser positivo'),
     dataVencimento: z.coerce.date(),
     mesReferencia: z.number().min(1).max(12),
     anoReferencia: z.number().min(2025),
@@ -22,7 +22,7 @@ export const atualizarPagamentoSchema = z.object({
 
 export const listarPagamentosSchema = z.object({
   query: z.object({
-    params: z.object({ alunoId: z.string().uuid().optional(),}),
+    alunoId: z.string().uuid().optional(),
     status: z.enum(['PENDENTE', 'PAGO', 'VENCIDO', 'CANCELADO']).optional(),
     page: z.string().optional().transform(Number).default(1),
     limit: z.string().optional().transform(Number).default(20),

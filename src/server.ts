@@ -20,12 +20,15 @@ import { enderecoRoutes } from './routes/enderecoRoutes'
 import { notaRoutes } from './routes/notaRoutes'
 import { frequenciaRoutes } from './routes/frequenciaRoutes'
 import { ocorrenciaRoutes } from './routes/ocorrenciaRoutes'
+import { gradeHorariaRoutes } from './routes/gradeHorariaRoutes'
+import { cronogramaProvaRoutes } from './routes/cronogramaProvaRoutes'
 
 //Financeiro
 import { contratoRoutes } from './routes/contratoRoutes'
 import { situacaoRoutes } from './routes/situacaoRoutes'
 import { gerarBoletosRoutes } from './routes/gerarBoletosRoutes'
 import { notificacaoAutomaticaRoutes } from './routes/notificacaoAutomaticaRoutes'
+import { lancamentoRoutes } from './routes/lancamentoRoutes'
 
 // Extras
 import { atividadeExtraRoutes } from './routes/atividadeExtraRoutes'
@@ -81,12 +84,15 @@ app.use('/enderecos', enderecoRoutes)
 app.use('/notas', notaRoutes)
 app.use('/frequencias', frequenciaRoutes)
 app.use('/ocorrencias', ocorrenciaRoutes)
+app.use('/grade', gradeHorariaRoutes)
+app.use('/cronogramas', cronogramaProvaRoutes)
 
 // Financeiro
 app.use('/contratos', contratoRoutes)
 app.use('/situacao', situacaoRoutes)
 app.use(gerarBoletosRoutes)
 app.use('/notificacao-automatica', notificacaoAutomaticaRoutes)
+app.use(lancamentoRoutes)
 
 //Extras
 app.use('/atividades-extra', atividadeExtraRoutes)

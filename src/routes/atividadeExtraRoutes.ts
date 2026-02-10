@@ -11,15 +11,19 @@ import {
 } from '../schemas/atividadeExtraSchemas'
 
 const router = Router()
+
 router.use(authMiddleware)
 router.use(contextMiddleware)
 
+// CRUD Atividades
 router.get('/', atividadeExtraController.list)
 router.get('/:id', atividadeExtraController.show)
 router.post('/', validate(criarAtividadeSchema), atividadeExtraController.create)
 router.put('/:id', validate(atualizarAtividadeSchema), atividadeExtraController.update)
 router.delete('/:id', atividadeExtraController.delete)
 
+// Gestão de Alunos (Matrícula na Atividade)
+// Atenção aos nomes dos parâmetros aqui (:atividadeId e :alunoId)
 router.post('/:atividadeId/alunos', validate(vincularAlunoAtividadeSchema), atividadeExtraController.vincularAluno)
 router.delete('/:atividadeId/alunos/:alunoId', validate(desvincularAlunoAtividadeSchema), atividadeExtraController.desvincularAluno)
 router.get('/:atividadeId/alunos', atividadeExtraController.alunosDaAtividade)

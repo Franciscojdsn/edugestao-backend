@@ -4,7 +4,7 @@ export const criarAtividadeSchema = z.object({
   body: z.object({
     nome: z.string().min(3).max(100),
     descricao: z.string().max(500).optional(),
-    valor: z.number().positive(),
+    valor: z.number().positive(), // Backend espera number, certifique-se que o frontend envia number
     diaAula: z.enum(['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO']),
     horario: z.string().regex(/^\d{2}:\d{2}$/),
     capacidadeMaxima: z.number().int().positive().optional(),
@@ -20,17 +20,22 @@ export const atualizarAtividadeSchema = z.object({
     diaAula: z.enum(['SEGUNDA', 'TERCA', 'QUARTA', 'QUINTA', 'SEXTA', 'SABADO']).optional(),
     horario: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     capacidadeMaxima: z.number().int().positive().optional(),
+    atualizarBoletosPendentes: z.boolean().optional()
   }),
 })
 
 export const vincularAlunoAtividadeSchema = z.object({
-  params: z.object({ atividadeId: z.string().uuid() }),
-  body: z.object({ alunoId: z.string().uuid() }),
+  params: z.object({
+    atividadeId: z.string().uuid() // Valida o param da URL
+  }),
+  body: z.object({
+    alunoId: z.string().uuid() // Valida o ID enviado no JSON
+  }),
 })
 
 export const desvincularAlunoAtividadeSchema = z.object({
   params: z.object({
     atividadeId: z.string().uuid(),
-    alunoId: z.string().uuid(),
+    alunoId: z.string().uuid()
   }),
 })
