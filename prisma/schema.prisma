@@ -540,7 +540,6 @@ model Funcionario {
   turmas                TurmaProfessor[]
   transacoes            Transacao[] // Pagamentos de salário
   ocorrencias           Ocorrencia[]
-  logAuditorias         LogAuditoria[]
   disciplinasLecionadas TurmaDisciplina[]
   lancamentos           Lancamento[]
 
@@ -972,18 +971,20 @@ enum TipoEvento {
 // ============================================
 
 model LogAuditoria {
-  id           String      @id @default(uuid())
+  id           String @id @default(uuid())
   entidade     String
   entidadeId   String
   acao         String
   dadosAntigos Json?
   dadosNovos   Json?
-  usuarioId    String
-  usuario      Funcionario @relation(fields: [usuarioId], references: [id])
-  escolaId     String
-  escola       Escola      @relation(fields: [escolaId], references: [id])
-  ip           String?
-  createdAt    DateTime    @default(now())
+
+  usuarioId String?
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id])
+
+  ip        String?
+  createdAt DateTime @default(now())
 
   @@index([escolaId])
   @@index([entidade])

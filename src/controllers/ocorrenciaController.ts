@@ -26,7 +26,7 @@ export const ocorrenciaController = {
       })
 
       // Novo: Gatilho de Notificação Automática para ocorrências GRAVES
-      if (dados.gravidade === 'GRAVE' || dados.gravidade === 'CRITICA') {
+      if (dados.gravidade === 'GRAVE' || dados.gravidade === 'GRAVISSIMA') {
         await tx.comunicado.create({
           data: {
             titulo: `Ocorrência Disciplinar: ${dados.titulo}`,
@@ -44,15 +44,41 @@ export const ocorrenciaController = {
     return res.status(201).json(ocorrencia)
   },
 
-  async estatisticas(req: Request, res: Response) { // Novo: Método para Dashboard Pedagógico
-    const escolaId = req.user?.escolaId
+  async estatisticas(req: Request, res: Response) {
+    const escolaId = req.user?.escolaId;
+    const { dataInicio, dataFim } = req.query;
 
-    const stats = await prisma.ocorrencia.groupBy({
-      by: ['tipo', 'gravidade'],
-      where: { escolaId },
-      _count: true
-    })
+    // Filtro de data opcional
+    const filtroData: any = {};
+    if (dataInicio || dataFim) {
+      filtroData.data = {};
+      if (dataInicio) filtroData.data.gte = new Date(dataInicio as string);
+      if (dataFim) filtroData.data.lte = new Date(dataFim as string);
+    }
 
-    return res.json(stats)
+    const [porGravidade, porTipo, totalRecentes] = await Promise.all([
+      // Agrupado por Gravidade
+      prisma.ocorrencia.groupBy({
+        by: ['gravidade'],
+        where: { escolaId, ...filtroData },
+        _count: true,
+      }),
+      // Agrupado por Tipo
+      prisma.ocorrencia.groupBy({
+        by: ['tipo'],
+        where: { escolaId, ...filtroData },
+        _count: true,
+      }),
+      // Total Geral
+      prisma.ocorrencia.count({
+        where: { escolaId, ...filtroData }
+      })
+    ]);
+
+    return res.json({
+      total: totalRecentes,
+      gravidade: porGravidade.map(g => ({ label: g.gravidade, qtd: g._count })),
+      tipos: porTipo.map(t => ({ label: t.tipo, qtd: t._count }))
+    });
   }
 }

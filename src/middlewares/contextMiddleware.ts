@@ -1,21 +1,19 @@
 import { Request, Response, NextFunction } from 'express'
 import { requestContext } from '../utils/context'
 
-/**
- * Middleware que injeta o contexto da requisição no AsyncLocalStorage
- * Deve ser usado DEPOIS do authMiddleware
- */
 export function contextMiddleware(
   req: Request,
   res: Response,
   next: NextFunction
 ) {
-  // Se tem usuário autenticado, armazena no contexto
   if (req.user) {
+    // Normalização defensiva: tenta pegar userId OU id
+    const idDoUsuario = req.user.userId || (req.user as any).id;
+
     requestContext.run(
       {
         escolaId: req.user.escolaId,
-        userId: req.user.userId,
+        userId: idDoUsuario, // Agora garantimos que não vai undefined
         role: req.user.role,
       },
       () => {
@@ -23,7 +21,6 @@ export function contextMiddleware(
       }
     )
   } else {
-    // Sem autenticação, apenas continua
     next()
   }
 }

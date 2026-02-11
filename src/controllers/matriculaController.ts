@@ -190,14 +190,19 @@ export const matriculaController = {
     // Criar contrato
     const contrato = await prisma.contrato.create({
       data: {
-        alunoId: matricula.alunoId,
-        responsavelFinanceiroId,
+        // Em vez de passar alunoId direto, usamos o connect para garantir a relação
+        aluno: {connect: { id: matricula.alunoId }},
+        // Fazemos o mesmo para o responsável
+        responsavelFinanceiro: {connect: { id: responsavelFinanceiroId }},
+        // Adicione o escolaId que é obrigatório no seu sistema de multitenancy
+        escola: {connect: { id: req.user?.escolaId }},
+        
         valorMensalidade,
         diaVencimento,
         dataInicio: new Date(),
         ativo: true,
       },
-    })
+    });
 
     // Atualizar matrícula
     await prisma.matricula.update({

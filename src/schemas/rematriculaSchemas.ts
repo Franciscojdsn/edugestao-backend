@@ -31,7 +31,8 @@ export const listarRematriculasSchema = z.object({
   query: z.object({
     status: z.enum(['PENDENTE', 'CONFIRMADA', 'RECUSADA', 'CANCELADA']).optional(),
     anoNovo: z.string().regex(/^\d{4}$/).transform(Number).optional(),
+    nomeAluno: z.string().optional(), // Nova melhoria de busca
     page: z.string().regex(/^\d+$/).transform(Number).optional(),
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
-  }).optional(),
+  }),
 })

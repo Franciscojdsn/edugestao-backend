@@ -114,7 +114,7 @@ app.use('/comunicados', comunicadoRoutes)
 app.use('/portal-responsavel', portalResponsavelRoutes)
 
 // Logs de Auditoria
-app.use('/logs-auditoria', logAuditoriaRoutes)
+app.use('/logs', logAuditoriaRoutes)
 
 
 // Middleware de erro

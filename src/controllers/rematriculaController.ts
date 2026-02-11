@@ -56,46 +56,32 @@ export const rematriculaController = {
   },
 
   async confirmar(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
-    const dados = req.body || {}
+    const id = req.params as {id: string};
+    const { turmaNovaId, valorNovo, observacoes } = req.body
 
-    const rematricula = await prisma.rematricula.findFirst({
-      where: { id: idFormatado, escola: { id: req.user?.escolaId } },
-      include: { aluno: { select: { id: true, nome: true } } },
+    // Melhoria: Uso de Transaction para garantir que o status só mude se tudo der certo
+    const resultado = await prisma.$transaction(async (tx) => {
+      const rematricula = await tx.rematricula.update({
+        where: id ,
+        data: {
+          status: 'CONFIRMADA',
+          observacoes,
+          dataConfirmacao: new Date()
+        }
+      })
+
+      // Se houver turma nova, já vincula o aluno para o próximo ano
+      if (turmaNovaId) {
+        await tx.aluno.update({
+          where: { id: rematricula.alunoId },
+          data: { turmaId: turmaNovaId }
+        })
+      }
+
+      return rematricula
     })
 
-    if (!rematricula) throw new AppError('Rematrícula não encontrada', 404)
-    if (rematricula.status !== 'PENDENTE') throw new AppError('Rematrícula não está pendente', 400)
-
-    const valorNovo = dados.valorNovo || rematricula.valorNovo
-
-    const atualizada = await prisma.rematricula.update({
-      where: { id: idFormatado },
-      data: {
-        status: 'CONFIRMADA',
-        turmaNova: dados.turmaNovaId || null,
-        valorNovo,
-        dataConfirmacao: new Date(),
-        observacoes: dados.observacoes || null,
-      },
-    })
-
-    if (dados.turmaNovaId) {
-      await prisma.aluno.update({
-        where: { id: rematricula.alunoId },
-        data: { turmaId: dados.turmaNovaId },
-      })
-    }
-
-    if (dados.valorNovo) {
-      await prisma.contrato.updateMany({
-        where: { alunoId: rematricula.alunoId, ativo: true },
-        data: { valorMensalidade: dados.valorNovo },
-      })
-    }
-
-    return res.json({ message: 'Rematrícula confirmada', rematricula: atualizada })
+    return res.json(resultado)
   },
 
   async recusar(req: Request, res: Response) {
@@ -177,16 +163,15 @@ export const rematriculaController = {
       _count: true,
     })
 
-    const total = porStatus.reduce((s, item) => s + item._count, 0)
+    const total = await prisma.rematricula.count({ where })
+    const confirmadas = await prisma.rematricula.count({
+      where: { ...where, status: 'CONFIRMADA' }
+    })
 
     return res.json({
-      anoNovo: anoNovo || 'Todos',
       total,
-      porStatus: porStatus.map(s => ({
-        status: s.status,
-        quantidade: s._count,
-        percentual: total > 0 ? Number(((s._count / total) * 100).toFixed(2)) : 0,
-      })),
+      porStatus,
+      taxaRetencao: total > 0 ? `${((confirmadas / total) * 100).toFixed(2)}%` : "0%"
     })
   },
 }

@@ -57,7 +57,7 @@ export const portalResponsavelController = {
     })
     if (!responsavel) throw new AppError('Responsável não encontrado', 404)
 
-    const pagamentos = await prisma.pagamento.findMany({
+    const pagamentos = await prisma.boletos.findMany({
       where: { alunoId: responsavel.aluno.id },
       select: { referencia: true, valorTotal: true, valorPago: true, status: true, dataVencimento: true, dataPagamento: true },
       orderBy: { dataVencimento: 'desc' },
@@ -127,6 +127,7 @@ export const portalResponsavelController = {
       orderBy: [{ anoLetivo: 'desc' }, { bimestre: 'asc' }],
     })
 
+
     const porDisciplina: any = {}
     notas.forEach(nota => {
       const key = nota.disciplina.nome
@@ -150,15 +151,21 @@ export const portalResponsavelController = {
     const totalDias = frequencias.length
     const presencas = frequencias.filter(f => f.presente).length
 
+    const notasAgrupadas = {
+      1: notas.filter(n => n.bimestre === 1),
+      2: notas.filter(n => n.bimestre === 2),
+      3: notas.filter(n => n.bimestre === 3),
+      4: notas.filter(n => n.bimestre === 4),
+    }
+
     return res.json({
-      aluno: responsavel.aluno,
-      academico: { disciplinas, totalNotas: notas.length },
+      aluno: responsavel.aluno.nome,
+      boletim: notasAgrupadas,
       frequencia: {
         totalDias,
         presencas,
-        faltas: totalDias - presencas,
-        percentualPresenca: totalDias > 0 ? Number(((presencas / totalDias) * 100).toFixed(2)) : 0,
-      },
+        percentualPresenca: totalDias > 0 ? ((presencas / totalDias) * 100).toFixed(2) : 0
+      }
     })
   },
 

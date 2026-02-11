@@ -11,6 +11,7 @@ const router = Router()
 router.use(authMiddleware)
 router.use(contextMiddleware)
 
+router.get('/estatisticas', ocorrenciaController.estatisticas)
 router.post('/', validate(criarOcorrenciaSchema), ocorrenciaController.create)
 
 export { router as ocorrenciaRoutes }

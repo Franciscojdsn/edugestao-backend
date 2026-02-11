@@ -1,7 +1,6 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 
-
 export const logAuditoriaController = {
   async list(req: Request, res: Response) {
     const { page = 1, limit = 50, entidade, acao, usuarioId, dataInicio, dataFim } = req.query
@@ -18,12 +17,12 @@ export const logAuditoriaController = {
       if (dataFim) where.createdAt.lte = new Date(dataFim as string)
     }
 
+    // REMOVIDO: include: { usuario: true } pois a relação não existe mais no schema
     const [logs, total] = await Promise.all([
       prisma.logAuditoria.findMany({
         where,
         skip,
         take: Number(limit),
-        include: { usuario: { select: { nome: true } } },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.logAuditoria.count({ where }),
@@ -41,11 +40,21 @@ export const logAuditoriaController = {
 
     const log = await prisma.logAuditoria.findFirst({
       where: { id: idFormatado, escolaId: req.user?.escolaId },
-      include: { usuario: { select: { nome: true } } },
     })
 
     if (!log) return res.status(404).json({ message: 'Log não encontrado' })
-    return res.json(log)
+
+    // Se precisar buscar o nome do funcionário manualmente para o detalhe:
+    let nomeUsuario = 'Sistema/Outro';
+    if (log.usuarioId) {
+      const func = await prisma.funcionario.findUnique({
+        where: { id: log.usuarioId },
+        select: { nome: true }
+      });
+      if (func) nomeUsuario = func.nome;
+    }
+
+    return res.json({ ...log, nomeUsuario })
   },
 
   async exportar(req: Request, res: Response) {
@@ -61,18 +70,17 @@ export const logAuditoriaController = {
 
     const logs = await prisma.logAuditoria.findMany({
       where,
-      include: { usuario: { select: { nome: true } } },
       orderBy: { createdAt: 'desc' },
     })
 
     const csv = [
-      'Data,Entidade,ID Entidade,Ação,Usuário,IP',
+      'Data,Entidade,ID Entidade,Ação,Usuário ID,IP',
       ...logs.map(l => [
         l.createdAt.toISOString(),
         l.entidade,
         l.entidadeId,
         l.acao,
-        l.usuario.nome,
+        l.usuarioId || 'SISTEMA', // Usamos o ID direto aqui
         l.ip || '',
       ].join(',')),
     ].join('\n')

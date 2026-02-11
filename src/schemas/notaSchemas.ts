@@ -4,6 +4,7 @@ export const criarNotaSchema = z.object({
   body: z.object({
     alunoId: z.string().uuid(),
     disciplinaId: z.string().uuid(),
+    turmaId: z.string().uuid(), 
     valor: z.number().min(0).max(10),
     bimestre: z.number().int().min(1).max(4),
     anoLetivo: z.number().int().min(2000).max(2100),
