@@ -17,3 +17,5 @@ export const criarUsuarioSchema = z.object({
     role: z.enum(['ADMIN', 'SECRETARIA', 'PROFESSOR', 'FINANCEIRO']).optional(),
   }),
 })
+
+export type LoginInput = z.infer<typeof loginSchema>['body']

@@ -7,20 +7,18 @@ import { ZodObject } from 'zod'
 export function validate(schema: ZodObject<any>) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Valida body, query e params
+      console.log("DEBUG: Validando dados do corpo:", req.body); // ADICIONE ISSO
       await schema.parseAsync({
         body: req.body,
         query: req.query,
         params: req.params,
-      })
-
-      // NÃO tenta sobrescrever req.query (é read-only)
-      // A validação já aconteceu, isso é suficiente
-      next()
+      });
+      next();
     } catch (error) {
-      next(error)
+      console.log("DEBUG: Erro de validação Zod!", error); // ADICIONE ISSO
+      next(error);
     }
-  }
+  };
 }
 
 /**

@@ -81,7 +81,7 @@ enum RoleUsuario {
   ADMIN // Dono da escola
   SECRETARIA // Acesso total administrativo
   PROFESSOR // Acesso a turmas e notas
-  FINANCEIRO // Acesso apenas financeiro
+  RESPONSAVEL // Acesso apenas responsavel
 }
 
 // ============================================
