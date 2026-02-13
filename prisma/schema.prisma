@@ -244,8 +244,9 @@ model Contrato {
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  matriculas Matricula[]
 
   @@index([alunoId])
   @@map("contratos")
@@ -769,7 +770,7 @@ model Matricula {
   numeroMatricula String          @unique
   dataMatricula   DateTime        @default(now())
   anoLetivo       Int
-  status          StatusMatricula @default(PENDENTE)
+  status          StatusMatricula @default(EM_ANDAMENTO)
 
   // Etapas do processo
   etapaAtual          EtapaMatricula @default(DADOS_PESSOAIS)
@@ -789,6 +790,9 @@ model Matricula {
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
+  contratoId String? // Gerado ao final da matrícula
+  contrato   Contrato? @relation(fields: [contratoId], references: [id], onDelete: SetNull)
+
   // Observações
   observacoes String?
 
@@ -803,7 +807,7 @@ model Matricula {
 
 enum StatusMatricula {
   PENDENTE
-  EM_ANALISE
+  EM_ANDAMENTO
   APROVADA
   REJEITADA
   CANCELADA
