@@ -4,7 +4,7 @@ export const iniciarMatriculaSchema = z.object({
   body: z.object({
     turmaId: z.string().uuid(),
     anoLetivo: z.number().int().min(2024).max(2030),
-    
+
     // Dados do aluno
     nomeAluno: z.string().min(3),
     cpfAluno: z.string().optional(),
@@ -17,17 +17,30 @@ export const iniciarMatriculaSchema = z.object({
 
 export const adicionarResponsavelSchema = z.object({
   params: z.object({
-    matriculaId: z.string().uuid(),
+    matriculaId: z.string().uuid("ID de matrícula inválido"),
   }),
+  // Remova o segundo "body: z.object({" que estava aqui
   body: z.object({
-    nome: z.string().min(3),
-    cpf: z.string().optional(),
-    telefone1: z.string().min(10),
-    email: z.string().email().optional(),
+    nome: z.string().min(3, "Nome muito curto"),
+    cpf: z.string().optional().nullable(),
+    email: z.string().email("Email inválido").optional().nullable(),
+    telefone1: z.string().optional().nullable(),
+    // Verifique se o front envia exatamente um desses:
     tipo: z.enum(['PAI', 'MAE', 'AVO', 'OUTRO']),
-    isResponsavelFinanceiro: z.boolean().default(false),
+    isResponsavelFinanceiro: z.boolean(),
+    usarEnderecoDoAluno: z.boolean(),
+    endereco: z.object({
+      cep: z.string().optional().nullable(),
+      rua: z.string().optional().nullable(),
+      numero: z.string().optional().nullable(),
+      bairro: z.string().optional().nullable(),
+      cidade: z.string().optional().nullable(),
+      estado: z.string().max(2).optional().nullable(),
+      complemento: z.string().optional().nullable(),
+    }).optional().nullable(),
   }),
-})
+});
+
 
 export const finalizarMatriculaSchema = z.object({
   params: z.object({

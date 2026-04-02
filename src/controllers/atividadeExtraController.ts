@@ -61,40 +61,45 @@ export const atividadeExtraController = {
 
   // POST /atividades
   async create(req: Request, res: Response) {
-    const dados = req.body
-    const escolaId = req.user?.escolaId
+    const escolaId = req.user?.escolaId;
+    const dados = req.body;
 
-    if (!escolaId) throw new AppError('Escola não identificada', 401)
+    // Verificação de duplicidade (já existente no seu código)
+    const existe = await prisma.atividadeExtra.findFirst({
+      where: { nome: dados.nome, escolaId }
+    });
 
-    const atividadeExiste = await prisma.atividadeExtra.findFirst({
-      where: {
-        nome: dados.nome,
-        escolaId: escolaId
-      },
-    })
-
-    if (atividadeExiste) throw new AppError('Atividade com este nome já existe', 400)
+    if (existe) throw new AppError('Já existe uma atividade com este nome nesta escola', 400);
 
     const atividade = await prisma.atividadeExtra.create({
-      data: { ...dados, escolaId },
-    })
+      data: {
+        nome: dados.nome,
+        descricao: dados.descricao,
+        valor: Number(dados.valor),
+        escolaId: String(escolaId),
+        diaAula: dados.diaAula,
+        horario: dados.horario,
+        capacidadeMaxima: dados.capacidadeMaxima ? Number(dados.capacidadeMaxima) : null,
+      }
+    });
 
-    return res.status(201).json(atividade)
+    return res.status(201).json(atividade);
   },
 
   // PUT /atividades/:id
   async update(req: Request, res: Response) {
-    const id = req.params;
-    const { atualizarBoletosPendentes, ...dados } = req.body
-    const escolaId = req.user?.escolaId
-    const hoje = new Date()
+    // CORREÇÃO: Desestruturando para extrair a string exata do ID
+    const { id } = req.params;
+    const { atualizarBoletosPendentes, ...dados } = req.body;
+    const escolaId = req.user?.escolaId;
+    const hoje = new Date();
 
     // 1. Verificar se a atividade existe
     const atividadeExistente = await prisma.atividadeExtra.findFirst({
-      where: { id, escolaId },
-    })
+      where: { id: String(id), escolaId },
+    });
 
-    if (!atividadeExistente) throw new AppError('Atividade não encontrada', 404)
+    if (!atividadeExistente) throw new AppError('Atividade não encontrada', 404);
 
     // 2. Verificar nome duplicado (se houver alteração de nome)
     if (dados.nome && dados.nome !== atividadeExistente.nome) {
@@ -102,17 +107,26 @@ export const atividadeExtraController = {
         where: {
           nome: dados.nome,
           escolaId,
-          id: { not: id }
+          id: { not: String(id) } // Agora o 'id' é uma string válida para o Prisma
         },
-      })
-      if (nomeEmUso) throw new AppError('Nome já está em uso', 400)
+      });
+      if (nomeEmUso) throw new AppError('Nome já está em uso', 400);
     }
 
     // 3. Atualizar a atividade
-    const atividade = await prisma.atividadeExtra.update({
+    const atividadeAtualizada = await prisma.atividadeExtra.update({
       where: { id: String(id) },
-      data: dados,
-    })
+      data: {
+        nome: dados.nome,
+        descricao: dados.descricao,
+        valor: dados.valor !== undefined ? Number(dados.valor) : undefined,
+
+        // Novos campos
+        diaAula: dados.diaAula,
+        horario: dados.horario,
+        capacidadeMaxima: dados.capacidadeMaxima ? Number(dados.capacidadeMaxima) : null,
+      }
+    });
 
     // 4. Lógica de Recálculo Financeiro
     if (atualizarBoletosPendentes && dados.valor && Number(dados.valor) !== Number(atividadeExistente.valor)) {
@@ -123,7 +137,7 @@ export const atividadeExtraController = {
           dataVencimento: { gt: hoje },
           aluno: {
             atividadesExtra: {
-              some: { atividadeExtraId: id }
+              some: { atividadeExtraId: String(id) }
             }
           }
         },
@@ -135,26 +149,22 @@ export const atividadeExtraController = {
             }
           }
         }
-      })
+      });
 
       // Processa cada boleto afetado
       for (const boleto of boletosParaAtualizar) {
-        // CORREÇÃO: Removido o [0]. 
-        // Se no seu schema for 1:1, acesse direto. 
-        // Se for 1:N, verifique se o nome no include é 'contrato' ou 'contratos'
         const aluno = boleto.aluno;
         if (!aluno) continue;
 
-        // Tenta pegar o contrato (ajuste 'contrato' para o nome exato que está no seu include/prisma)
-        const contrato = Array.isArray(aluno.contrato) ? aluno.contrato[0] : aluno.contrato;
+        // Tenta pegar o contrato 
+        const contrato = Array.isArray(aluno.contrato) ? aluno.contrato : aluno.contrato;
 
         if (!contrato) continue;
 
-        // Convertendo para número com segurança (Decimal do Prisma para Number do JS)
+        // Convertendo para número com segurança 
         const valorBase = Number(contrato.valorMensalidade);
         const valorDesconto = Number(contrato.valorDesconto || 0);
 
-        // Tipagem explícita 'any' ou a Interface do Prisma para o 'item' do reduce
         const novoValorAtividades = aluno.atividadesExtra.reduce((acc: number, item: any) => {
           const valorItem = item.atividadeExtraId === id
             ? Number(dados.valor)
@@ -174,7 +184,7 @@ export const atividadeExtraController = {
       }
     }
 
-    return res.json(atividade)
+    return res.json(atividadeAtualizada);
   },
 
   // DELETE /atividades/:id

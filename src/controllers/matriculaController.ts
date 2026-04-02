@@ -13,95 +13,80 @@ export const matriculaController = {
     const escolaId = req.user?.escolaId
 
     if (!escolaId) {
-      throw new AppError('Escola não identificada no perfil do usuário', 403)
+      throw new AppError('Escola não identificada', 403)
     }
 
-    // Verificar turma
+    // 1. Verificar se a turma existe
     const turma = await prisma.turma.findFirst({
       where: withEscolaId({ id: dados.turmaId }),
-      include: {
-        _count: { select: { alunos: true, matriculas: true } },
-      },
+      include: { _count: { select: { alunos: true } } }
     })
     if (!turma) throw new AppError('Turma não encontrada', 404)
 
-    // Verificar capacidade
-    if (turma.capacidadeMaxima && turma._count.alunos >= turma.capacidadeMaxima) {
-      throw new AppError('Turma com capacidade máxima atingida', 400)
+    // 2. Lógica de Geração do Número de Matrícula (YY.RAND)
+    const anoAbreviado = new Date().getFullYear().toString().slice(-2); // Ex: "26"
+    let numeroMatricula = '';
+    let matriculaExiste = true;
+    let tentativas = 0;
+
+    // Loop de segurança: tenta gerar um número único até 5 vezes
+    while (matriculaExiste && tentativas < 5) {
+      const random4 = Math.floor(1000 + Math.random() * 9000); // Gera entre 1000 e 9999
+      numeroMatricula = `${anoAbreviado}.${random4}`;
+
+      const conflito = await prisma.aluno.findFirst({
+        where: {
+          escolaId,
+          numeroMatricula
+        }
+      });
+
+      if (!conflito) {
+        matriculaExiste = false;
+      } else {
+        tentativas++;
+      }
     }
-
-    // Gerar número de matrícula único - CORRIGIDO
-    const ano = dados.anoLetivo
-
-    // Buscar TODAS as matrículas do ano (não só alunos)
-    const ultimaMatricula = await prisma.matricula.findFirst({
-      where: {
-        escolaId,
-        anoLetivo: ano,
-      },
-      orderBy: { numeroMatricula: 'desc' },
-    })
-
-    let proximoNumero = 1
-    if (ultimaMatricula) {
-      // Pegamos o que vem depois do ano
-      const prefixoAno = ano.toString()
-      const sequencialPuro = ultimaMatricula.numeroMatricula.startsWith(prefixoAno)
-        ? ultimaMatricula.numeroMatricula.substring(prefixoAno.length)
-        : ultimaMatricula.numeroMatricula.replace(/\D/g, '').slice(-3) // fallback de segurança
-
-      proximoNumero = (parseInt(sequencialPuro) || 0) + 1
-    }
-
-    // 2. Gerar a matrícula (mínimo de 3 dígitos no sequencial)
-    const numeroMatricula = `${ano}${proximoNumero.toString().padStart(3, '0')}`
-
-    // Verificar se já existe (segurança extra)
-    const matriculaExiste = await prisma.aluno.findUnique({
-      where: { numeroMatricula },
-    })
 
     if (matriculaExiste) {
-      throw new AppError('Número de matrícula já existe. Tente novamente.', 400)
+      throw new AppError('Falha ao gerar número de matrícula único. Tente novamente.', 500);
     }
 
-    // Criar aluno
-    const aluno = await prisma.aluno.create({
-      data: {
-        nome: dados.nomeAluno,
-        cpf: dados.cpfAluno,
-        dataNascimento: new Date(dados.dataNascimento),
-        genero: dados.genero,
-        naturalidade: dados.naturalidade,
-        numeroMatricula,
-        turno: dados.turno,
-        escolaId: escolaId,
-        turmaId: dados.turmaId,
-      },
-    })
+    // 3. Iniciar Transação para criar Aluno e Matrícula
+    const resultado = await prisma.$transaction(async (tx) => {
+      // Cria o Aluno (vinculado à escola)
+      const novoAluno = await tx.aluno.create({
+        data: {
+          nome: dados.nomeAluno,
+          cpf: dados.cpfAluno || null,
+          dataNascimento: new Date(dados.dataNascimento),
+          numeroMatricula,
+          turmaId: dados.turmaId,
+          escolaId,
+          turno: dados.turno // Turno que agora vem automático do front
+        }
+      });
 
-    // Criar matrícula
-    const matricula = await prisma.matricula.create({
-      data: {
-        numeroMatricula,
-        anoLetivo: dados.anoLetivo,
-        alunoId: aluno.id,
-        turmaId: dados.turmaId,
-        escolaId: escolaId,
-        etapaAtual: 'RESPONSAVEIS',
-        dadosPessoaisOk: true,
-      },
-      include: {
-        aluno: { select: { nome: true, numeroMatricula: true } },
-        turma: { select: { nome: true } },
-      },
-    })
+      // Cria a Matrícula (vinculada ao aluno)
+      const novaMatricula = await tx.matricula.create({
+        data: {
+          alunoId: novoAluno.id,
+          turmaId: dados.turmaId,
+          escolaId,
+          anoLetivo: Number(dados.anoLetivo),
+          status: 'PENDENTE',
+          numeroMatricula: numeroMatricula // Mantendo registro na tabela de matricula também
+        }
+      });
+
+      return { aluno: novoAluno, matricula: novaMatricula };
+    });
 
     return res.status(201).json({
       message: 'Matrícula iniciada com sucesso',
-      matricula,
-      proximaEtapa: 'RESPONSAVEIS',
-    })
+      matriculaId: resultado.matricula.id, // ID para o navigate do front
+      numeroMatricula: resultado.aluno.numeroMatricula
+    });
   },
 
   /**
@@ -109,51 +94,63 @@ export const matriculaController = {
    * Adiciona responsável à matrícula
    */
   async adicionarResponsavel(req: Request, res: Response) {
-    const { matriculaId } = req.params
-    const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId
-    const dados = req.body
+    const { matriculaId } = req.params;
+    const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId;
 
+    // 1. Destruímos o body para separar o que é controle (front) do que é banco
+    const { usarEnderecoDoAluno, endereco, ...dadosLimpos } = req.body;
+    const escolaId = req.user?.escolaId;
+
+    // 2. Buscamos a matrícula trazendo o enderecoId do aluno vinculado
     const matricula = await prisma.matricula.findFirst({
-      where: {
-        id: idFormatado,
-        escola: { id: req.user?.escolaId },
-      },
-    })
+      where: { id: idFormatado, escolaId },
+      include: { aluno: { select: { enderecoId: true } } }
+    });
 
-    if (!matricula) throw new AppError('Matrícula não encontrada', 404)
+    if (!matricula) throw new AppError('Matrícula não encontrada', 404);
 
-    // Se marcar como financeiro, desmarcar outros
-    if (dados.isResponsavelFinanceiro) {
-      await prisma.responsavel.updateMany({
-        where: {
-          alunoId: matricula.alunoId,
-          isResponsavelFinanceiro: true,
-        },
-        data: { isResponsavelFinanceiro: false },
-      })
+    // 3. Lógica de definição do endereço
+    let enderecoData = undefined;
+
+    if (usarEnderecoDoAluno && matricula.aluno.enderecoId) {
+      // Vincula ao endereço que o aluno já possui
+      enderecoData = { connect: { id: matricula.aluno.enderecoId } };
+    } else if (endereco && endereco.cep) {
+      // Cria um novo endereço para o responsável
+      enderecoData = {
+        create: {
+          rua: endereco.rua,
+          numero: endereco.numero,
+          bairro: endereco.bairro,
+          cidade: endereco.cidade,
+          estado: endereco.estado,
+          cep: endereco.cep,
+          complemento: endereco.complemento || null,
+        }
+      };
     }
 
+    // 4. Criação do responsável
     const responsavel = await prisma.responsavel.create({
       data: {
-        ...dados,
+        ...dadosLimpos, // nome, cpf (já limpo), email, telefone1, tipo, isResponsavelFinanceiro
         alunoId: matricula.alunoId,
+        escolaId: escolaId,
+        endereco: enderecoData
       },
-    })
+    });
 
-    // Atualizar etapa se tiver pelo menos 1 responsável
+    // 5. Atualizar etapa para CONTRATO
     await prisma.matricula.update({
       where: { id: idFormatado },
-      data: {
-        responsaveisOk: true,
-        etapaAtual: 'CONTRATO',
-      },
-    })
+      data: { responsaveisOk: true, etapaAtual: 'CONTRATO' },
+    });
 
     return res.status(201).json({
       message: 'Responsável adicionado',
       responsavel,
       proximaEtapa: 'CONTRATO',
-    })
+    });
   },
 
   /**
@@ -191,12 +188,12 @@ export const matriculaController = {
     const contrato = await prisma.contrato.create({
       data: {
         // Em vez de passar alunoId direto, usamos o connect para garantir a relação
-        aluno: {connect: { id: matricula.alunoId }},
+        aluno: { connect: { id: matricula.alunoId } },
         // Fazemos o mesmo para o responsável
-        responsavelFinanceiro: {connect: { id: responsavelFinanceiroId }},
+        responsavelFinanceiro: { connect: { id: responsavelFinanceiroId } },
         // Adicione o escolaId que é obrigatório no seu sistema de multitenancy
-        escola: {connect: { id: req.user?.escolaId }},
-        
+        escola: { connect: { id: req.user?.escolaId } },
+
         valorMensalidade,
         diaVencimento,
         dataInicio: new Date(),
