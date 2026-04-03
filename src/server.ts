@@ -29,6 +29,7 @@ import { situacaoRoutes } from './routes/situacaoRoutes'
 import { gerarBoletosRoutes } from './routes/gerarBoletosRoutes'
 import { notificacaoAutomaticaRoutes } from './routes/notificacaoAutomaticaRoutes'
 import { lancamentoRoutes } from './routes/lancamentoRoutes'
+import { boletoRoutes } from './routes/boletoRoutes'
 
 // Extras
 import { atividadeExtraRoutes } from './routes/atividadeExtraRoutes'
@@ -93,6 +94,7 @@ app.use('/situacao', situacaoRoutes)
 app.use(gerarBoletosRoutes)
 app.use('/notificacao-automatica', notificacaoAutomaticaRoutes)
 app.use(lancamentoRoutes)
+app.use('/boletos', boletoRoutes)
 
 //Extras
 app.use('/atividades-extra', atividadeExtraRoutes)

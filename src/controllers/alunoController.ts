@@ -101,36 +101,40 @@ export const alunoController = {
     const idFormatado = Array.isArray(id) ? id[0] : id
 
     const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id: idFormatado }),
+      where: {
+        id: idFormatado,
+        escolaId: req.user?.escolaId,
+        deletedAt: null
+      },
       include: {
         turma: true,
         endereco: true,
         responsaveis: {
-          select: {
-            id: true,
-            nome: true,
-            tipo: true,
-            email: true,
-            isResponsavelFinanceiro: true,
-          },
+          select: { id: true, nome: true, tipo: true, email: true, isResponsavelFinanceiro: true }
         },
         contrato: {
           select: {
             id: true,
-            valorMensalidade: true,
+            valorMensalidadeBase: true,
+            descontoMensalidade: true,
+            valorMatricula: true,
+            quantidadeParcelas: true,
             diaVencimento: true,
             dataInicio: true,
             dataFim: true,
-          },
+            status: true,
+            ativo: true
+          }
         },
+        // 👇 ADICIONE ESTE BLOCO PARA LISTAR NA PAGINA DO ALUNO 👇
+        boletos: {
+          orderBy: { dataVencimento: 'asc' } // Traz ordenado do mais antigo pro mais novo
+        },
+        // 👆 ---------------------------------------------------- 👆
         _count: {
-          select: {
-            responsaveis: true,
-            notas: true,
-            atividadesExtra: true,
-          },
-        },
-      },
+          select: { responsaveis: true, atividadesExtra: true }
+        }
+      }
     })
 
     if (!aluno) {

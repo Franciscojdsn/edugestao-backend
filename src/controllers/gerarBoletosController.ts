@@ -41,9 +41,8 @@ export const gerarBoletosController = {
       const ano = dataReferencia.getFullYear();
       const referencia = `${String(mes).padStart(2, '0')}/${ano}`;
 
-      const valorBase = Number(contrato.valorMensalidade); // Decimal do Prisma
-      const valorDesconto = Number(contrato.valorDesconto || 0);
-
+      const valorBase = Number(contrato.valorMensalidadeBase); // Decimal do Prisma
+      const valorDesconto = Number(contrato.descontoMensalidade) || 0;
 
       const valorAtividades = contrato.aluno.atividadesExtra.reduce((acc, item) => {
         return acc + (Number(item.atividadeExtra.valor) || 0);

@@ -158,66 +158,134 @@ export const matriculaController = {
    * Finaliza matrícula criando contrato
    */
   async finalizar(req: Request, res: Response) {
-    const { matriculaId } = req.params
-    const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId
-    const { valorMensalidade, diaVencimento, responsavelFinanceiroId } = req.body
+    const { matriculaId } = req.params;
+    const {
+      valorMatricula,
+      descontoMatricula,   // Descomente assim que rodar o prisma db push
+      valorMensalidadeBase,
+      descontoMensalidade,
+      atividadesExtrasIds,
+      diaVencimento,
+      qtdParcelas,
+      responsavelFinanceiroId
+    } = req.body;
 
-    const matricula = await prisma.matricula.findFirst({
-      where: {
-        id: idFormatado,
-        escola: { id: req.user?.escolaId },
-      },
-      include: {
-        aluno: true,
-      },
-    })
+    const escolaId = req.user?.escolaId;
+    if (!escolaId) throw new AppError('Tenant (escolaId) não identificado no token.', 403);
 
-    if (!matricula) throw new AppError('Matrícula não encontrada', 404)
-
-    // Verificar responsável financeiro
-    const responsavel = await prisma.responsavel.findFirst({
-      where: {
-        id: responsavelFinanceiroId,
-        alunoId: matricula.alunoId,
-      },
-    })
-
-    if (!responsavel) throw new AppError('Responsável não encontrado', 404)
-
-    // Criar contrato
-    const contrato = await prisma.contrato.create({
-      data: {
-        // Em vez de passar alunoId direto, usamos o connect para garantir a relação
-        aluno: { connect: { id: matricula.alunoId } },
-        // Fazemos o mesmo para o responsável
-        responsavelFinanceiro: { connect: { id: responsavelFinanceiroId } },
-        // Adicione o escolaId que é obrigatório no seu sistema de multitenancy
-        escola: { connect: { id: req.user?.escolaId } },
-
-        valorMensalidade,
-        diaVencimento,
-        dataInicio: new Date(),
-        ativo: true,
-      },
+    const matriculaRascunho = await prisma.matricula.findFirst({
+      where: { id: matriculaId.toString(), escolaId },
+      include: { aluno: true }
     });
 
-    // Atualizar matrícula
-    await prisma.matricula.update({
-      where: { id: idFormatado },
-      data: {
-        status: 'APROVADA',
-        etapaAtual: 'FINALIZADA',
-        contratoAssinado: true,
-        pagamentoConfirmado: true,
-      },
-    })
+    if (!matriculaRascunho) throw new AppError('Matrícula não encontrada.', 404);
 
-    return res.json({
-      message: 'Matrícula finalizada com sucesso!',
-      numeroMatricula: matricula.numeroMatricula,
-      contrato,
-      aluno: matricula.aluno,
-    })
+    // --- CÁLCULOS FINANCEIROS PRÉ-TRANSAÇÃO ---
+    // 1. Busca os valores das atividades extras atreladas para compor a mensalidade
+    const atividades = await prisma.atividadeExtra.findMany({
+      where: { id: { in: atividadesExtrasIds }, escolaId }
+    });
+
+    const somaExtras = atividades.reduce((acc, curr) => acc + Number(curr.valor), 0);
+    const totalMensalidade = (Number(valorMensalidadeBase) - Number(descontoMensalidade)) + somaExtras;
+
+    // ATENÇÃO: Quando o banco estiver sincronizado, adicione o (valorMatricula - descontoMatricula) na parcela 1.
+    const valorPrimeiraParcela = totalMensalidade;
+
+    // --- TRANSAÇÃO ATÔMICA ---
+    const resultado = await prisma.$transaction(async (tx) => {
+
+      // A. Gerar Número Oficial (Mantido o seu código)
+      const anoAbreviado = new Date().getFullYear().toString().slice(-2);
+      const randomID = Math.floor(1000 + Math.random() * 9000);
+      const numeroMatriculaOficial = `${anoAbreviado}.${randomID}`;
+
+      // B. Efetivar Matrícula (Mantido o seu código)
+      await tx.matricula.update({
+        where: { id: matriculaId.toString() },
+        data: { status: 'APROVADA', numeroMatricula: numeroMatriculaOficial }
+      });
+
+      // C. Criar o Contrato
+      const contrato = await tx.contrato.create({
+        data: {
+          alunoId: matriculaRascunho.alunoId,
+          responsavelFinanceiroId,
+          escolaId,
+          valorMensalidadeBase,
+          descontoMensalidade,
+          diaVencimento,
+          quantidadeParcelas: qtdParcelas,
+          dataInicio: new Date(),
+          status: 'ATIVO'
+        }
+      });
+
+      // D. Processar o "Carrinho" de Atividades Extras
+      if (atividadesExtrasIds && atividadesExtrasIds.length > 0) {
+        const vinculosExtras = atividadesExtrasIds.map((extraId: string) => ({
+          alunoId: matriculaRascunho.alunoId,
+          atividadeExtraId: extraId,
+          ativo: true,
+          dataInicio: new Date()
+        }));
+        await tx.alunoAtividadeExtra.createMany({ data: vinculosExtras });
+      }
+
+      // E. GERADOR DE BOLETOS (Integrado ao Model Boletos)
+      const boletosData = [];
+      const dataAtual = new Date();
+      const mesInicial = dataAtual.getMonth() + 1; // Mês atual (1-12)
+      const anoInicial = dataAtual.getFullYear();
+
+      for (let i = 1; i <= qtdParcelas; i++) {
+        // Cálculo de Mês e Ano de Referência
+        let mesRef = mesInicial + (i - 1);
+        let anoRef = anoInicial;
+
+        while (mesRef > 12) {
+          mesRef -= 12;
+          anoRef += 1;
+        }
+
+        // Regra de Vencimento
+        const vencimento = new Date(anoRef, mesRef - 1, diaVencimento);
+
+        // Formatação da Referência (Ex: "04/2026")
+        const mesFormatado = mesRef.toString().padStart(2, '0');
+        const referenciaStr = `${mesFormatado}/${anoRef}`;
+
+        boletosData.push({
+          escolaId,
+          alunoId: matriculaRascunho.alunoId,
+          referencia: referenciaStr,
+          mesReferencia: mesRef,
+          anoReferencia: anoRef,
+
+          // Engenharia Financeira
+          valorBase: Number(valorMensalidadeBase) - Number(descontoMensalidade),
+          valorAtividades: Number(somaExtras),
+          valorTotal: i === 1 ? Number(valorPrimeiraParcela) : Number(totalMensalidade),
+
+          dataVencimento: vencimento,
+          status: 'PENDENTE',
+          descricao: `Mensalidade Escolar - Parcela ${i}/${qtdParcelas}`
+        });
+      }
+
+      // Salva os boletos (parcelas) em lote
+      await tx.boletos.createMany({ data: boletosData as any[] });
+
+      return {
+        numeroMatricula: numeroMatriculaOficial,
+        contratoId: contrato.id
+      };
+    });
+
+    return res.status(200).json({
+      message: "Matrícula finalizada! Contrato e Boletos gerados com sucesso.",
+      data: resultado
+    });
   },
 
   /**

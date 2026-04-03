@@ -50,6 +50,7 @@ model Escola {
   cronogramaProva CronogramaProva[]
   contratoes      Contrato[]
   boletos         Boletos[]
+  responsavels    Responsavel[]
 
   @@map("escolas")
 }
@@ -168,39 +169,46 @@ enum Turno {
 }
 
 // ============================================
-// 5. RESPONSÁVEL
+// 5. RESPONSÁVEL (Família e Financeiro)
 // ============================================
 model Responsavel {
-  id             String    @id @default(uuid())
+  id             String    @id @default(uuid()) // UUID v4 Obrigatório
   nome           String
-  cpf            String?
+  cpf            String? // Essencial para emissão de boletos/contratos
   rg             String?
   dataNascimento DateTime?
   telefone1      String?
-  telefone2      String?
+  telefone2      String? // Segundo telefone solicitado
   email          String?
 
-  // Tipo de responsável
+  // --- Regras de Negócio ---
   tipo                    TipoResponsavel
   isResponsavelFinanceiro Boolean         @default(false)
 
-  // Relacionamentos
-  alunoId  String
-  aluno    Aluno   @relation(fields: [alunoId], references: [id], onDelete: Cascade)
-  escolaId String?
+  // --- Relacionamentos de Identidade ---
+  alunoId String
+  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
+  // --- Multi-tenancy Absoluto ---
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  // --- Localização Reutilizável ---
   enderecoId String?
   endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relacionamentos
-  contratos   Contrato[]
-  transacoes  Transacao[]
+  // --- Motor Financeiro e Comunicação ---
+  contratos   Contrato[] // Relação 1:N com Contratos (onde ele é o pagador)
+  lancamentos Lancamento[] // Relação com parcelas/boletos
   comunicados Comunicado[]
 
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  transacaos Transacao[]
+
   @@index([alunoId])
+  @@index([escolaId])
+  @@index([cpf]) // Indexado para buscas rápidas de histórico familiar
   @@map("responsaveis")
 }
 
@@ -208,46 +216,49 @@ enum TipoResponsavel {
   PAI
   MAE
   AVO
+  TUTOR
   OUTRO
 }
 
 // ============================================
-// 6. CONTRATO (Condições Financeiras)
+// 6. CONTRATO (Condições Financeiras Evoluídas)
 // ============================================
 model Contrato {
   id String @id @default(uuid())
 
-  // Valores
-  valorMensalidade Decimal   @db.Decimal(10, 2)
-  diaVencimento    Int       @default(10)
-  dataInicio       DateTime // A partir de quando cobrar
-  dataFim          DateTime? // Quando termina o contrato
+  // --- Composição Financeira da Matrícula (Taxa Única) ---
+  valorMatricula    Decimal @default(0) @db.Decimal(10, 2)
+  descontoMatricula Decimal @default(0) @db.Decimal(10, 2)
 
-  // Descontos
-  temDesconto    Boolean  @default(false)
-  valorDesconto  Decimal? @db.Decimal(5, 2)
-  motivoDesconto String?
+  // --- Composição da Mensalidade (Recorrente) ---
+  valorMensalidadeBase Decimal @default(0) @db.Decimal(10, 2)
+  descontoMensalidade  Decimal @default(0) @db.Decimal(10, 2)
+
+  diaVencimento      Int       @default(10)
+  quantidadeParcelas Int       @default(12)
+  dataInicio         DateTime  @default(now())
+  dataFim            DateTime?
 
   status StatusContrato @default(ATIVO)
+  ativo  Boolean        @default(true)
 
-  ativo Boolean @default(true)
-
-  // Relacionamentos
-  transacoes Transacao[]
-
-  alunoId String @unique // 1 aluno = 1 contrato ativo
+  // --- Relacionamentos ---
+  alunoId String @unique
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
   responsavelFinanceiroId String
   responsavelFinanceiro   Responsavel @relation(fields: [responsavelFinanceiroId], references: [id], onDelete: Restrict)
 
   escolaId String
-  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+  escola   Escola  @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   matriculas Matricula[]
+  transacoes Transacao[]
 
+  @@index([escolaId])
   @@index([alunoId])
   @@map("contratos")
 }
@@ -1021,9 +1032,11 @@ model Lancamento {
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id])
+  responsavelId String?
 
   @@index([escolaId])
   @@index([tipo])
