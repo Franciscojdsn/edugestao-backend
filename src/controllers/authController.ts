@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import bcrypt from 'bcrypt'
+import bcrypt from 'bcryptjs'
 import { prisma } from '../config/prisma'
 import { generateToken } from '../utils/jwt'
 import { AppError } from '../middlewares/errorHandler'
@@ -10,29 +10,30 @@ export const authController = {
     console.log("🚀 [DEBUG] Requisição recebida no Controller");
     console.log("📧 Email:", req.body.email);
 
+    const { email, senha } = req.body;
+
+    console.log("--- DEBUG LOGIN EDUGESTÃO ---");
+    console.log(`[FRONT] E-mail recebido: "${email}" (Tamanho: ${email?.length})`);
+    console.log(`[FRONT] Senha recebida: "${senha}" (Tamanho: ${senha?.length})`);
+
     try {
-      // 1. Tentar buscar no Banco
-      console.log("🔍 [DEBUG] Buscando usuário no Prisma...");
       const usuario = await prisma.usuario.findUnique({
-        where: { email: req.body.email },
+        where: { email: email.trim().toLowerCase() },
       });
 
       if (!usuario) {
-        console.log("❌ [DEBUG] Usuário não encontrado no banco.");
-        throw new AppError('Email ou senha incorretos', 401);
+        console.log("❌ Resultado: Usuário não encontrado no Banco.");
+        return res.status(401).json({ message: 'E-mail ou senha incorretos' });
       }
 
-      console.log("✅ [DEBUG] Usuário encontrado. Hash no banco:", usuario.senha);
+      console.log(`[BANCO] Hash encontrado: ${usuario.senha.substring(0, 15)}...`);
 
-      // 2. Testar Bcrypt
-      console.log("🔐 [DEBUG] Comparando senhas com Bcrypt...");
-      const senhaValida = await bcrypt.compare(req.body.senha, usuario.senha);
-
-      console.log("📊 [DEBUG] Resultado Bcrypt:", senhaValida);
+      // COMPARAÇÃO COM LOG
+      const senhaValida = await bcrypt.compare(senha.trim(), usuario.senha);
+      console.log(`[BCRYPT] A senha bate? ${senhaValida ? "SIM ✅" : "NÃO ❌"}`);
 
       if (!senhaValida) {
-        console.log("❌ [DEBUG] Senha incorreta.");
-        throw new AppError('Email ou senha incorretos', 401);
+        return res.status(401).json({ message: 'E-mail ou senha incorretos' });
       }
 
       // 3. Gerar Token
@@ -56,8 +57,8 @@ export const authController = {
       });
 
     } catch (error) {
-      console.log("🚨 [DEBUG] Erro capturado no Catch:", error);
-      throw error;
+      console.error("🔥 ERRO CRÍTICO NO LOGIN:", error);
+      res.status(500).json({ error: "Erro interno" });
     }
   }
 }
