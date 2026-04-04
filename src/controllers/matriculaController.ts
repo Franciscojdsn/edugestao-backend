@@ -9,65 +9,70 @@ export const matriculaController = {
    * Inicia processo de matrícula
    */
   async iniciar(req: Request, res: Response) {
-    const dados = req.body
-    const escolaId = req.user?.escolaId
+    const dados = req.body;
+    const escolaId = req.user?.escolaId as string;
 
-    if (!escolaId) {
-      throw new AppError('Escola não identificada', 403)
-    }
+    if (!escolaId) throw new AppError('Escola não identificada', 403);
 
-    // 1. Verificar se a turma existe
     const turma = await prisma.turma.findFirst({
       where: withEscolaId({ id: dados.turmaId }),
-      include: { _count: { select: { alunos: true } } }
-    })
-    if (!turma) throw new AppError('Turma não encontrada', 404)
+    });
+    if (!turma) throw new AppError('Turma não encontrada', 404);
 
-    // 2. Lógica de Geração do Número de Matrícula (YY.RAND)
-    const anoAbreviado = new Date().getFullYear().toString().slice(-2); // Ex: "26"
+    // Geração de Matrícula
+    const anoAbreviado = new Date().getFullYear().toString().slice(-2);
     let numeroMatricula = '';
     let matriculaExiste = true;
     let tentativas = 0;
 
-    // Loop de segurança: tenta gerar um número único até 5 vezes
     while (matriculaExiste && tentativas < 5) {
-      const random4 = Math.floor(1000 + Math.random() * 9000); // Gera entre 1000 e 9999
+      const random4 = Math.floor(1000 + Math.random() * 9000);
       numeroMatricula = `${anoAbreviado}.${random4}`;
-
       const conflito = await prisma.aluno.findFirst({
-        where: {
-          escolaId,
-          numeroMatricula
+        where: { escolaId, numeroMatricula }
+      });
+      if (!conflito) matriculaExiste = false;
+      else tentativas++;
+    }
+
+    // TRANSAÇÃO BLINDADA
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Cria Endereço (Limpando o Estado para 2 caracteres)
+      const novoEndereco = await tx.endereco.create({
+        data: {
+          cep: String(dados.endereco.cep).replace(/\D/g, ''),
+          rua: String(dados.endereco.rua),
+          numero: String(dados.endereco.numero),
+          complemento: dados.endereco.complemento || null,
+          bairro: String(dados.endereco.bairro),
+          cidade: String(dados.endereco.cidade),
+          // 🔥 GARANTIA ARQUITETURAL: Pega apenas os 2 primeiros caracteres
+          estado: String(dados.endereco.estado).substring(0, 2).toUpperCase(),
         }
       });
 
-      if (!conflito) {
-        matriculaExiste = false;
-      } else {
-        tentativas++;
-      }
-    }
-
-    if (matriculaExiste) {
-      throw new AppError('Falha ao gerar número de matrícula único. Tente novamente.', 500);
-    }
-
-    // 3. Iniciar Transação para criar Aluno e Matrícula
-    const resultado = await prisma.$transaction(async (tx) => {
-      // Cria o Aluno (vinculado à escola)
+      // 2. Cria Aluno vinculado
       const novoAluno = await tx.aluno.create({
         data: {
           nome: dados.nomeAluno,
-          cpf: dados.cpfAluno || null,
+          cpf: dados.cpf ? String(dados.cpf).replace(/\D/g, "") : null,
           dataNascimento: new Date(dados.dataNascimento),
+          genero: dados.genero,
           numeroMatricula,
           turmaId: dados.turmaId,
           escolaId,
-          turno: dados.turno // Turno que agora vem automático do front
+          enderecoId: novoEndereco.id, // Vínculo essencial
+          // Saúde
+          /**
+          numeroSus: dados.numeroSus || null,
+          planoSaude: Boolean(dados.planoSaude),
+          hospital: dados.hospital || null,
+          matriculaPlano: dados.matriculaPlano || null,
+          */
         }
       });
 
-      // Cria a Matrícula (vinculada ao aluno)
+      // 3. Cria Matrícula
       const novaMatricula = await tx.matricula.create({
         data: {
           alunoId: novoAluno.id,
@@ -75,17 +80,20 @@ export const matriculaController = {
           escolaId,
           anoLetivo: Number(dados.anoLetivo),
           status: 'PENDENTE',
-          numeroMatricula: numeroMatricula // Mantendo registro na tabela de matricula também
+          etapaAtual: 'RESPONSAVEIS',
+          numeroMatricula
         }
       });
 
-      return { aluno: novoAluno, matricula: novaMatricula };
+      return {
+        matriculaId: novaMatricula.id,
+        enderecoId: novoEndereco.id
+      };
     });
 
     return res.status(201).json({
-      message: 'Matrícula iniciada com sucesso',
-      matriculaId: resultado.matricula.id, // ID para o navigate do front
-      numeroMatricula: resultado.aluno.numeroMatricula
+      message: 'Passo 1 concluído!',
+      ...resultado
     });
   },
 
@@ -94,60 +102,78 @@ export const matriculaController = {
    * Adiciona responsável à matrícula
    */
   async adicionarResponsavel(req: Request, res: Response) {
+    // 1. Tratamento Rigoroso de Tipagem de ID (Params)
     const { matriculaId } = req.params;
-    const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId;
+    const idFormatado = (Array.isArray(matriculaId) ? matriculaId : matriculaId) as string;
 
-    // 1. Destruímos o body para separar o que é controle (front) do que é banco
-    const { usarEnderecoDoAluno, endereco, ...dadosLimpos } = req.body;
-    const escolaId = req.user?.escolaId;
-
-    // 2. Buscamos a matrícula trazendo o enderecoId do aluno vinculado
-    const matricula = await prisma.matricula.findFirst({
-      where: { id: idFormatado, escolaId },
-      include: { aluno: { select: { enderecoId: true } } }
-    });
-
-    if (!matricula) throw new AppError('Matrícula não encontrada', 404);
-
-    // 3. Lógica de definição do endereço
-    let enderecoData = undefined;
-
-    if (usarEnderecoDoAluno && matricula.aluno.enderecoId) {
-      // Vincula ao endereço que o aluno já possui
-      enderecoData = { connect: { id: matricula.aluno.enderecoId } };
-    } else if (endereco && endereco.cep) {
-      // Cria um novo endereço para o responsável
-      enderecoData = {
-        create: {
-          rua: endereco.rua,
-          numero: endereco.numero,
-          bairro: endereco.bairro,
-          cidade: endereco.cidade,
-          estado: endereco.estado,
-          cep: endereco.cep,
-          complemento: endereco.complemento || null,
-        }
-      };
+    if (!idFormatado) {
+      throw new AppError('O ID da matrícula é obrigatório na URL.', 400);
     }
 
-    // 4. Criação do responsável
+    // 2. Extração Estrita do Payload Refatorado (Mutuamente Exclusivo)
+    const { enderecoId, endereco, ...dadosLimpos } = req.body;
+
+    // Regra de Ouro (Multi-tenancy): Extrai e tipa o tenant do JWT
+    const escolaId = req.user?.escolaId as string;
+
+    if (!escolaId) {
+      throw new AppError('Escola não identificada no Token de Acesso.', 403);
+    }
+
+    // 3. Busca e Validação da Matrícula (Tenant-bound)
+    const matricula = await prisma.matricula.findFirst({
+      where: { id: idFormatado, escolaId },
+      include: { aluno: { select: { id: true } } }
+    });
+
+    if (!matricula) {
+      throw new AppError('Matrícula não encontrada ou você não tem permissão para acessá-la.', 404);
+    }
+
+    // 4. Construção do Objeto de Relacionamento de Endereço
+    let enderecoData: any = undefined;
+
+    if (enderecoId && typeof enderecoId === 'string') {
+      // Cenário A: Vincula ao endereço existente
+      enderecoData = { connect: { id: enderecoId } };
+    } else if (endereco && typeof endereco === 'object' && endereco.rua) {
+      // Cenário B: Endereço é novo E o objeto realmente existe
+      enderecoData = {
+        create: {
+          rua: String(endereco.rua),
+          numero: String(endereco.numero),
+          bairro: String(endereco.bairro),
+          cidade: String(endereco.cidade),
+          estado: String(endereco.estado).toUpperCase(),
+          cep: String(endereco.cep).replace(/\D/g, ''),
+          complemento: endereco.complemento ? String(endereco.complemento) : null,
+        }
+      };
+    } else {
+      // Cenário C: A requisição veio sem ID e sem Objeto de Endereço válido
+      throw new AppError('Dados de endereço ausentes. Forneça o enderecoId do aluno ou um novo endereço completo.', 400);
+    }
+
+    // 5. Execução do Cadastro
     const responsavel = await prisma.responsavel.create({
       data: {
-        ...dadosLimpos, // nome, cpf (já limpo), email, telefone1, tipo, isResponsavelFinanceiro
-        alunoId: matricula.alunoId,
-        escolaId: escolaId,
-        endereco: enderecoData
+        ...dadosLimpos,
+        alunoId: matricula.aluno.id,
+        escolaId: escolaId, // Regra de Ouro: Multi-tenant
+        endereco: enderecoData // O Prisma resolve se faz connect ou create
+      }
+    });
+    // 6. Atualização de Máquina de Estado do Wizard
+    await prisma.matricula.update({
+      where: { id: idFormatado },
+      data: {
+        responsaveisOk: true,
+        etapaAtual: 'CONTRATO'
       },
     });
 
-    // 5. Atualizar etapa para CONTRATO
-    await prisma.matricula.update({
-      where: { id: idFormatado },
-      data: { responsaveisOk: true, etapaAtual: 'CONTRATO' },
-    });
-
     return res.status(201).json({
-      message: 'Responsável adicionado',
+      message: 'Responsável legal e financeiro vinculado com sucesso!',
       responsavel,
       proximaEtapa: 'CONTRATO',
     });

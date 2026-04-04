@@ -48,14 +48,24 @@ export const criarResponsavelSchema = z.object({
             .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
             .optional(),
 
-        isResponsavelFinanceiro: z.boolean()
-            .default(false),
+        isResponsavelFinanceiro: z.boolean(),
 
-        enderecoId: z.string()
-            .uuid('ID de endereço inválido')
-            .optional(),
-    }),
-})
+        // Simplificou! Só espera o ID ou o Objeto
+        enderecoId: z.string().uuid("ID de endereço inválido").optional(),
+        endereco: z.object({
+            cep: z.string(),
+            rua: z.string(),
+            numero: z.string(),
+            complemento: z.string().optional(),
+            bairro: z.string(),
+            cidade: z.string(),
+            estado: z.string().length(2)
+        }).optional()
+    }).refine((data) => data.enderecoId || data.endereco, {
+        message: "É obrigatório enviar o enderecoId do aluno OU os dados de um novo endereço.",
+        path: ["endereco"] // Aponta o erro caso ambos venham vazios
+    })
+});
 
 /**
  * SCHEMA: Atualizar Responsável

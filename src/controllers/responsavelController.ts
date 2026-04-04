@@ -187,7 +187,6 @@ export const responsavelController = {
         contratos: {
           select: {
             id: true,
-            valorMensalidade: true,
             diaVencimento: true,
             dataInicio: true,
             dataFim: true,

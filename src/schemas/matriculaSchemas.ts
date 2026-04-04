@@ -9,7 +9,7 @@ export const iniciarMatriculaSchema = z.object({
     nomeAluno: z.string().min(3, "Nome muito curto"),
     cpf: z.string().optional().nullable(),
     dataNascimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato inválido (YYYY-MM-DD)"),
-    sexo: z.enum(['MASCULINO', 'FEMININO', 'OUTRO']),
+    genero: z.enum(['MASCULINO', 'FEMININO', 'OUTRO']),
 
     // Novos Campos: Saúde
     numeroSus: z.string().optional().nullable(),
