@@ -102,81 +102,48 @@ export const matriculaController = {
    * Adiciona responsável à matrícula
    */
   async adicionarResponsavel(req: Request, res: Response) {
-    // 1. Tratamento Rigoroso de Tipagem de ID (Params)
+    // 1. Captura correta do parâmetro da rota (/:matriculaId)
     const { matriculaId } = req.params;
-    const idFormatado = (Array.isArray(matriculaId) ? matriculaId : matriculaId) as string;
+    const { escolaId } = req.user; // Segurança Multi-tenant
 
-    if (!idFormatado) {
-      throw new AppError('O ID da matrícula é obrigatório na URL.', 400);
-    }
+    // 2. Destruturação Blindada
+    // Removemos 'endereco' (objeto do formulário) para que ele não vaze no '...dadosResponsavel'
+    const {
+      usarEnderecoDoAluno,
+      enderecoId: enderecoFrontId,
+      endereco, // Objeto de endereço vindo do form (ignorado se for herança)
+      ...dadosResponsavel
+    } = req.body;
 
-    // 2. Extração Estrita do Payload Refatorado (Mutuamente Exclusivo)
-    const { enderecoId, endereco, ...dadosLimpos } = req.body;
-
-    // Regra de Ouro (Multi-tenancy): Extrai e tipa o tenant do JWT
-    const escolaId = req.user?.escolaId as string;
-
-    if (!escolaId) {
-      throw new AppError('Escola não identificada no Token de Acesso.', 403);
-    }
-
-    // 3. Busca e Validação da Matrícula (Tenant-bound)
+    // 3. Busca da Matrícula e Aluno (Isolamento de Dados)
     const matricula = await prisma.matricula.findFirst({
-      where: { id: idFormatado, escolaId },
-      include: { aluno: { select: { id: true } } }
+      where: { id: matriculaId, escolaId },
+      include: { aluno: { select: { enderecoId: true } } }
     });
 
-    if (!matricula) {
-      throw new AppError('Matrícula não encontrada ou você não tem permissão para acessá-la.', 404);
-    }
+    if (!matricula) throw new AppError('Matrícula não localizada.', 404);
 
-    // 4. Construção do Objeto de Relacionamento de Endereço
-    let enderecoData: any = undefined;
+    // 4. Lógica de Decisão do Endereço (UUID v4)
+    let enderecoFinalId: string | null = null;
 
-    if (enderecoId && typeof enderecoId === 'string') {
-      // Cenário A: Vincula ao endereço existente
-      enderecoData = { connect: { id: enderecoId } };
-    } else if (endereco && typeof endereco === 'object' && endereco.rua) {
-      // Cenário B: Endereço é novo E o objeto realmente existe
-      enderecoData = {
-        create: {
-          rua: String(endereco.rua),
-          numero: String(endereco.numero),
-          bairro: String(endereco.bairro),
-          cidade: String(endereco.cidade),
-          estado: String(endereco.estado).toUpperCase(),
-          cep: String(endereco.cep).replace(/\D/g, ''),
-          complemento: endereco.complemento ? String(endereco.complemento) : null,
-        }
-      };
+    if (usarEnderecoDoAluno === true) {
+      enderecoFinalId = matricula.aluno?.enderecoId;
     } else {
-      // Cenário C: A requisição veio sem ID e sem Objeto de Endereço válido
-      throw new AppError('Dados de endereço ausentes. Forneça o enderecoId do aluno ou um novo endereço completo.', 400);
+      enderecoFinalId = enderecoFrontId;
     }
 
-    // 5. Execução do Cadastro
+    // 5. Persistência usando o campo FK diretamente (Mais performático)
+    // Usamos 'enderecoId' em vez do objeto 'endereco' para evitar o erro de validação
     const responsavel = await prisma.responsavel.create({
       data: {
-        ...dadosLimpos,
-        alunoId: matricula.aluno.id,
-        escolaId: escolaId, // Regra de Ouro: Multi-tenant
-        endereco: enderecoData // O Prisma resolve se faz connect ou create
+        ...dadosResponsavel,
+        alunoId: matricula.alunoId,
+        escolaId,
+        enderecoId: enderecoFinalId, // Grava o UUID diretamente
       }
     });
-    // 6. Atualização de Máquina de Estado do Wizard
-    await prisma.matricula.update({
-      where: { id: idFormatado },
-      data: {
-        responsaveisOk: true,
-        etapaAtual: 'CONTRATO'
-      },
-    });
 
-    return res.status(201).json({
-      message: 'Responsável legal e financeiro vinculado com sucesso!',
-      responsavel,
-      proximaEtapa: 'CONTRATO',
-    });
+    return res.status(201).json(responsavel);
   },
 
   /**

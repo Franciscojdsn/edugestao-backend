@@ -43,7 +43,7 @@ export const adicionarResponsavelSchema = z.object({
     email: z.string().email("E-mail inválido.").optional().nullable(),
     tipo: z.enum(['PAI', 'MAE', 'AVO', 'TUTOR', 'OUTRO']),
     isResponsavelFinanceiro: z.boolean(),
-    usarEnderecoDoAluno: z.boolean(),
+    usarEnderecoDoAluno: z.boolean().optional(),
 
     // O endereço só é validado se usarEnderecoDoAluno for false
     endereco: z.object({
