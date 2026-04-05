@@ -20,9 +20,8 @@ export const criarFuncionarioSchema = z.object({
       'PROFESSOR',
       'COORDENADOR',
       'DIRETOR',
-      'SECRETARIO',
+      'SECRETARIA',
       'AUXILIAR',
-      'ZELADOR',
       'OUTRO'
     ], {
       error: () => ({ message: 'Cargo inválido' })

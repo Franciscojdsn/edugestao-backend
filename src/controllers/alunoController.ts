@@ -126,13 +126,15 @@ export const alunoController = {
             ativo: true
           }
         },
-        // 👇 ADICIONE ESTE BLOCO PARA LISTAR NA PAGINA DO ALUNO 👇
         boletos: {
           orderBy: { dataVencimento: 'asc' } // Traz ordenado do mais antigo pro mais novo
         },
-        // 👆 ---------------------------------------------------- 👆
         _count: {
           select: { responsaveis: true, atividadesExtra: true }
+        },
+        atividadesExtra: {
+          include: { atividadeExtra: true },
+          where: { ativo: true } // Traz apenas as atividades que não foram canceladas
         }
       }
     })
@@ -141,7 +143,14 @@ export const alunoController = {
       throw new AppError('Aluno não encontrado', 404)
     }
 
-    return res.json(aluno)
+    const statusDerivado = aluno.contrato?.ativo ? 'ATIVO' : 'INATIVO';
+
+    // Retorna o objeto do aluno injetando o status derivado
+    return res.json({
+      ...aluno,
+      status: (aluno as any).status || statusDerivado
+
+    })
   },
 
   /**

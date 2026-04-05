@@ -84,6 +84,18 @@ export const turmaController = {
             professor: { select: { nome: true } }
           }
         },
+        disciplinas: {
+          include: { disciplina: { select: { id: true, nome: true, cargaHoraria: true } } },
+        },
+        alunos: {
+          where: { deletedAt: null }, // Traz apenas alunos ativos/não excluídos
+          select: {
+            id: true,
+            nome: true,
+            numeroMatricula: true,
+          },
+          orderBy: { nome: 'asc' } // Já traz ordenado do banco para ajudar o Frontend
+        },
         _count: {
           select: { alunos: { where: { deletedAt: null } } }
         }

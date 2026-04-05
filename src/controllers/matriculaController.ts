@@ -104,7 +104,7 @@ export const matriculaController = {
   async adicionarResponsavel(req: Request, res: Response) {
     // 1. Captura correta do parâmetro da rota (/:matriculaId)
     const { matriculaId } = req.params;
-    const { escolaId } = req.user; // Segurança Multi-tenant
+    const { escolaId } = req.user as { escolaId: string }; // Segurança Multi-tenant
 
     // 2. Destruturação Blindada
     // Removemos 'endereco' (objeto do formulário) para que ele não vaze no '...dadosResponsavel'
@@ -117,7 +117,7 @@ export const matriculaController = {
 
     // 3. Busca da Matrícula e Aluno (Isolamento de Dados)
     const matricula = await prisma.matricula.findFirst({
-      where: { id: matriculaId, escolaId },
+      where: { id: matriculaId.toString(), escolaId },
       include: { aluno: { select: { enderecoId: true } } }
     });
 
@@ -205,6 +205,8 @@ export const matriculaController = {
           alunoId: matriculaRascunho.alunoId,
           responsavelFinanceiroId,
           escolaId,
+          valorMatricula,
+          descontoMatricula,
           valorMensalidadeBase,
           descontoMensalidade,
           diaVencimento,
