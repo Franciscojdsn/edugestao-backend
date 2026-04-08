@@ -17,7 +17,8 @@ export const alunoController = {
       limit = 20,
       turmaId,
       turno,
-      busca
+      busca,
+      status // Recebe o status da query string
     } = req.query
 
     const skip = (Number(page) - 1) * Number(limit)
@@ -27,6 +28,11 @@ export const alunoController = {
 
     if (turmaId) where.turmaId = turmaId
     if (turno) where.turno = turno
+
+    // Filtro baseado no relacionamento com Contrato
+    if (status === 'ATIVO') {
+      where.contrato = { ativo: true }
+    }
 
     // Busca por nome ou matrícula
     if (busca) {
@@ -50,7 +56,7 @@ export const alunoController = {
     where = withTenancy(where)
 
     // Buscar alunos + contagem total
-    const [alunos, total] = await Promise.all([
+    const [alunos, total, totalGeral, inadimplentesCount] = await Promise.all([
       prisma.aluno.findMany({
         where,
         skip,
@@ -67,6 +73,7 @@ export const alunoController = {
             select: {
               id: true,
               nome: true,
+              turno: true, // Adiciona o turno da turma
             },
           },
           _count: {
@@ -80,12 +87,24 @@ export const alunoController = {
         },
       }),
       prisma.aluno.count({ where }),
+      prisma.aluno.count({ where: withTenancy({}) }),
+      prisma.aluno.count({
+        where: withTenancy({
+          boletos: {
+            some: {
+              status: { in: ['PENDENTE', 'VENCIDO'] as any },
+              dataVencimento: { lt: new Date() }
+            }
+          }
+        })
+      })
     ])
 
     return res.json({
       data: alunos,
       meta: {
-        total,
+        total: total, // Volta a retornar o total filtrado (Ativos) como a métrica principal
+        inadimplentes: inadimplentesCount,
         page: Number(page),
         limit: Number(limit),
         totalPages: Math.ceil(total / Number(limit)),
@@ -118,6 +137,7 @@ export const alunoController = {
             valorMensalidadeBase: true,
             descontoMensalidade: true,
             valorMatricula: true,
+            descontoMatricula: true,
             quantidadeParcelas: true,
             diaVencimento: true,
             dataInicio: true,

@@ -8,8 +8,22 @@ export const dashboardController = {
   async geral(req: Request, res: Response) {
     const escolaId = req.user?.escolaId
     const hoje = new Date()
-    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
+    
+    // Lógica de Ciclo Financeiro: Fechamento dia 10
+    const diaCorte = 10;
+    let inicioCiclo: Date;
+    let fimCiclo: Date;
+
+    if (hoje.getDate() <= diaCorte) {
+      inicioCiclo = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 11);
+      fimCiclo = new Date(hoje.getFullYear(), hoje.getMonth(), diaCorte, 23, 59, 59);
+    } else {
+      inicioCiclo = new Date(hoje.getFullYear(), hoje.getMonth(), 11);
+      fimCiclo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, diaCorte, 23, 59, 59);
+    }
+
+    const inicioAno = new Date(hoje.getFullYear(), 0, 1);
+    const fimAno = new Date(hoje.getFullYear(), 11, 31, 23, 59, 59); // Até o fim do ano corrente
 
     const [
       totalAlunos,
@@ -18,10 +32,12 @@ export const dashboardController = {
       totalDisciplinas,
       alunosAtivos,
       funcionariosAtivos,
-      faturamentoRealizado,
-      pendenciaBoletos,
-      receitaAvulsaPendente,
-      despesasMes,
+      entradaMensal,
+      saidaMensal,
+      estimadoMensal,
+      estimadoAnual,
+      pendenteMensal,
+      pendenteAnual,
     ] = await Promise.all([
       prisma.aluno.count({ where: withEscolaId({}) }),
       prisma.funcionario.count({ where: withEscolaId({}) }),
@@ -30,59 +46,79 @@ export const dashboardController = {
       prisma.aluno.count({ where: withTenancy({}) }),
       prisma.funcionario.count({ where: withTenancy({}) }),
 
-      // 1. O que JÁ entrou no caixa (Dinheiro na mão)
+      // 1. Entrada Mensal Realizada (Transações de Entrada no Ciclo)
       prisma.transacao.aggregate({
         where: {
           escolaId,
           tipo: 'ENTRADA',
-          data: { gte: inicioMes, lte: fimMes },
+          data: { gte: inicioCiclo, lte: fimCiclo },
           deletedAt: { equals: null }
         },
         _sum: { valor: true }
       }),
 
-      // 2. O que DEVERIA ter entrado via Boletos (Inadimplência ou A Vencer)
-      prisma.boletos.aggregate({
-        where: {
-          aluno: { escolaId },
-          status: { in: ['PENDENTE', 'VENCIDO'] }, // [CORREÇÃO] Filtro correto
-          dataVencimento: { gte: inicioMes, lte: fimMes }, // [ALTERADO] Considera o mês todo
-          deletedAt: { equals: null }
-        },
-        _sum: { valorTotal: true } // [NOTA] Boletos usa valorTotal
-      }),
-
-      // 3. Receitas Avulsas Pendentes (Tabela Lancamento) [NOVO]
-      prisma.lancamento.aggregate({
-        where: {
-          escolaId,
-          tipo: 'ENTRADA',
-          status: 'PENDENTE',
-          dataVencimento: { gte: inicioMes, lte: fimMes },
-          deletedAt: { equals: null }
-        },
-        _sum: { valor: true }
-      }),
-
-      // 4. Despesas do Mês (Tabela Lancamento) [NOVO]
+      // 2. Saída Mensal Realizada (Lançamentos de Saída no Ciclo)
       prisma.lancamento.aggregate({
         where: {
           escolaId,
           tipo: 'SAIDA',
-          dataVencimento: { gte: inicioMes, lte: fimMes },
+          dataVencimento: { gte: inicioCiclo, lte: fimCiclo },
           deletedAt: { equals: null }
         },
         _sum: { valor: true }
       }),
+
+      // 3. Estimado Mensal (Todos os Boletos do Ciclo)
+      prisma.boletos.aggregate({
+        where: {
+          aluno: { escolaId },
+          dataVencimento: { gte: inicioCiclo, lte: fimCiclo },
+          status: { not: 'CANCELADO' as any }, // Apenas boletos válidos (Pagos, Pendentes ou Vencidos)
+          deletedAt: null
+        },
+        _sum: { valorTotal: true }
+      }),
+
+      // 4. Estimado Anual (Todos os Boletos do Ano)
+      prisma.boletos.aggregate({
+        where: {
+          aluno: { escolaId },
+          dataVencimento: { gte: inicioAno, lte: fimAno },
+          status: { not: 'CANCELADO' as any },
+          deletedAt: null
+        },
+        _sum: { valorTotal: true }
+      }),
+
+      // 5. Pendente Mensal (Boletos Pendentes/Vencidos do Ciclo Atual)
+      prisma.boletos.aggregate({
+        where: {
+          aluno: { escolaId },
+          status: { in: ['PENDENTE', 'VENCIDO'] as any },
+          dataVencimento: { gte: inicioCiclo, lte: fimCiclo },
+          deletedAt: null
+        },
+        _sum: { valorTotal: true }
+      }),
+
+      // 6. Pendente Anual (Boletos Pendentes/Vencidos do Ano)
+      prisma.boletos.aggregate({
+        where: {
+          aluno: { escolaId },
+          status: { in: ['PENDENTE', 'VENCIDO'] as any },
+          dataVencimento: { gte: inicioAno, lte: fimAno },
+          deletedAt: null
+        },
+        _sum: { valorTotal: true }
+      }),
     ])
 
-    const valFaturamento = Number(faturamentoRealizado._sum?.valor || 0)
-    const valPendenciaBoletos = Number(pendenciaBoletos._sum?.valorTotal || 0)
-    const valReceitaAvulsa = Number(receitaAvulsaPendente._sum?.valor || 0)
-    const valDespesas = Number(despesasMes._sum?.valor || 0)
-
-    // Saldo Projetado = (O que tenho + O que vou receber) - (O que tenho que pagar)
-    const saldoProjetado = (valFaturamento + valPendenciaBoletos + valReceitaAvulsa) - valDespesas
+    const valEntrada = Number(entradaMensal._sum?.valor || 0)
+    const valSaida = Number(saidaMensal._sum?.valor || 0)
+    const valEstimadoMensal = Number(estimadoMensal._sum?.valorTotal || 0)
+    const valEstimadoAnual = Number(estimadoAnual._sum?.valorTotal || 0)
+    const valPendenteMensal = Number(pendenteMensal._sum?.valorTotal || 0)
+    const valPendenteAnual = Number(pendenteAnual._sum?.valorTotal || 0)
 
     const alunosPorTurno = await prisma.aluno.groupBy({
       by: ['turno'],
@@ -109,11 +145,12 @@ export const dashboardController = {
       },
       // [NOVO] Objeto dedicado ao financeiro para facilitar o frontend
       financeiro: {
-        faturamentoRealizado: valFaturamento,
-        aReceber: valPendenciaBoletos + valReceitaAvulsa, // Soma boletos e avulsos
-        despesasTotal: valDespesas,
-        saldoProjetado: saldoProjetado,
-        inadimplenciaBoletos: valPendenciaBoletos // Mantido para retrocompatibilidade se precisar
+        entradaMensal: valEntrada,
+        saidaMensal: valSaida,
+        estimadoMensal: valEstimadoMensal,
+        estimadoAnual: valEstimadoAnual,
+        pendenteMensal: valPendenteMensal,
+        pendenteAnual: valPendenteAnual,
       },
       alunosPorTurno: alunosPorTurno.map(t => ({
         turno: t.turno,
