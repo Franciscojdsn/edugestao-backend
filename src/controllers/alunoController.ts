@@ -14,7 +14,7 @@ export const alunoController = {
   async list(req: Request, res: Response) {
     const {
       page = 1,
-      limit = 20,
+      limit = 10,
       turmaId,
       turno,
       busca,
@@ -56,9 +56,9 @@ export const alunoController = {
     where = withTenancy(where)
 
     // Buscar alunos + contagem total
-    const [alunos, total, totalGeral, inadimplentesCount] = await Promise.all([
+    const [alunos, totalAlunos, totalInadimplentes] = await Promise.all([
       prisma.aluno.findMany({
-        where,
+        where: withEscolaId(where),
         skip,
         take: Number(limit),
         select: {
@@ -76,6 +76,10 @@ export const alunoController = {
               turno: true, // Adiciona o turno da turma
             },
           },
+          boletos: {
+            where: { status: 'VENCIDO' },
+            select: { id: true }
+          },
           _count: {
             select: {
               responsaveis: true,
@@ -86,30 +90,45 @@ export const alunoController = {
           nome: 'asc',
         },
       }),
-      prisma.aluno.count({ where }),
-      prisma.aluno.count({ where: withTenancy({}) }),
+      // B. Contagem Total para Paginação
+      prisma.aluno.count({ where: withEscolaId(where) }),
+
+      // C. Contagem de Inadimplentes (Crucial para o Widget do Dashboard)
       prisma.aluno.count({
-        where: withTenancy({
-          boletos: {
-            some: {
-              status: { in: ['PENDENTE', 'VENCIDO'] as any },
-              dataVencimento: { lt: new Date() }
-            }
-          }
+        where: withEscolaId({
+          ...where,
+          boletos: { some: { status: 'VENCIDO' } }
         })
       })
-    ])
+    ]);
 
+    const dataMapeada = alunos.map((aluno) => {
+      // Regra de Negócio: Se tem 1 ou mais boletos vencidos = INADIMPLENTE
+      const isInadimplente = aluno.boletos && aluno.boletos.length > 0;
+
+      // Removemos o array de boletos da resposta final por segurança e leveza
+      const { boletos, ...alunoLimpo } = aluno;
+
+      return {
+        ...alunoLimpo,
+        financeiroStatus: isInadimplente ? 'INADIMPLENTE' : 'EM_DIA'
+      };
+    });
+
+    // 4. Retorno Estruturado
     return res.json({
-      data: alunos,
+      data: dataMapeada,
       meta: {
-        total: total, // Volta a retornar o total filtrado (Ativos) como a métrica principal
-        inadimplentes: inadimplentesCount,
+        total: totalAlunos,
         page: Number(page),
         limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        totalPages: Math.ceil(totalAlunos / Number(limit))
       },
-    })
+      stats: { // <- O Dashboard consumirá este nó para os Widgets
+        totalAlunos: totalAlunos,
+        inadimplentes: totalInadimplentes
+      }
+    });
   },
 
   /**

@@ -3,7 +3,7 @@
 
 generator client {
   provider   = "prisma-client-js"
-  engineType = "binary" // ← ADICIONE AQUI
+  engineType = "binary" 
 }
 
 datasource db {
@@ -21,7 +21,7 @@ model Escola {
   cnpj     String  @unique
   telefone String?
   email    String?
-  logo     String? // URL da logo
+  logo     String? 
 
   // Configurações padrão
   mensalidadePadrao Decimal @default(0) @db.Decimal(10, 2)

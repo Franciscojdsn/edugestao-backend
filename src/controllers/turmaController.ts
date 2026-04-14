@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
+import { stat } from 'fs';
 
 // ============================================
 // CONTROLLER - TURMAS
@@ -50,7 +51,15 @@ export const turmaController = {
             }
           },
           _count: {
-            select: { alunos: { where: { deletedAt: null } } }
+            select: {
+              alunos: {
+                where: {
+                  deletedAt: null, contrato: {
+                    ativo: true // APENAS alunos com contrato ativo
+                  }
+                }
+              }
+            }
           }
         },
         orderBy: { nome: 'asc' },
@@ -88,11 +97,20 @@ export const turmaController = {
           include: { disciplina: { select: { id: true, nome: true, cargaHoraria: true } } },
         },
         alunos: {
-          where: { deletedAt: null }, // Traz apenas alunos ativos/não excluídos
+          where: {
+            deletedAt: null, contrato: {
+              ativo: true,
+              escolaId: escolaId // 
+            }
+          },
           select: {
             id: true,
             nome: true,
             numeroMatricula: true,
+            boletos: {
+              where: { status: 'VENCIDO', escolaId: escolaId },
+              select: { id: true }
+            }
           },
           orderBy: { nome: 'asc' } // Já traz ordenado do banco para ajudar o Frontend
         },
@@ -106,14 +124,25 @@ export const turmaController = {
       throw new AppError('Turma não encontrada', 404)
     }
 
-    return res.json(turma)
+    const response = {
+      ...turma,
+      professorPrincipal: turma.professores.find(p => p.isPrincipal)?.professor.nome || 'Sem Professor',
+      totalAlunosAtivos: turma.alunos.length,
+      alunos: turma.alunos.map(aluno => ({
+        ...aluno,
+        // Estado derivado para o Dashboard/DadosTurmas
+        financeiroStatus: aluno.boletos.length > 0 ? 'INADIMPLENTE' : 'REGULAR'
+      }))
+    };
+
+    return res.json(response);
   },
 
   /**
    * POST /turmas - Criar nova turma
    */
   async create(req: Request, res: Response) {
-    const dados = req.body
+    const { professorResponsavelId, ...dadosTurma } = req.body;
     const escolaId = req.user?.escolaId;
 
     if (!escolaId) {
@@ -123,8 +152,8 @@ export const turmaController = {
     // Verificar se já existe turma com mesmo nome no ano
     const turmaExistente = await prisma.turma.findFirst({
       where: {
-        nome: dados.nome,
-        anoLetivo: dados.anoLetivo,
+        nome: dadosTurma.nome,
+        anoLetivo: dadosTurma.anoLetivo,
         escolaId
       }
     });
@@ -133,15 +162,31 @@ export const turmaController = {
       throw new AppError('Já existe uma turma com este nome para o ano letivo informado', 400);
     }
 
-    // Criar turma
-    const turma = await prisma.turma.create({
-      data: {
-        ...dados,
-        escolaId
+    const resultado = await prisma.$transaction(async (tx) => {
+
+      // A. Criar a Turma vinculada ao Tenant
+      const novaTurma = await tx.turma.create({
+        data: {
+          ...dadosTurma,
+          escolaId, // Garantindo Isolamento
+        },
+      });
+
+      // B. Se houver professor selecionado, criar o vínculo na tabela N:N
+      if (professorResponsavelId) {
+        await tx.turmaProfessor.create({
+          data: {
+            turmaId: novaTurma.id,
+            professorId: professorResponsavelId,
+            isPrincipal: true, // Por padrão, o primeiro vinculado é o principal
+          },
+        });
       }
+
+      return novaTurma;
     });
 
-    return res.status(201).json(turma)
+    return res.status(201).json(resultado);
   },
 
   /**
