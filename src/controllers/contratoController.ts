@@ -175,4 +175,110 @@ export const contratoController = {
 
     return res.json(contratoAtualizado)
   },
+
+  /**
+   * POST /contratos/:id/suspender
+   * Suspende o contrato, cancela boletos futuros pendentes e gera auditoria.
+   */
+  async suspender(req: Request, res: Response) {
+    const { id } = req.params
+    const { motivo } = req.body
+    const escolaId = req.user?.escolaId
+
+    if (!escolaId) {
+      throw new AppError('Escola ID não encontrado no contexto de autenticação', 400)
+    }
+
+    // 1. Busca contrato atual para validar posse e guardar snapshot para auditoria
+    const contratoAtual = await prisma.contrato.findFirst({
+      where: {
+        id: id as string,
+        escolaId, // Regra de Ouro: Multi-tenant
+        ativo: true, // Só processa se estiver ativo
+      },
+      include: {
+        aluno: { select: { id: true, nome: true } }
+      }
+    })
+
+    if (!contratoAtual) {
+      throw new AppError('Contrato não encontrado, não pertence à escola ou já está inativo.', 404)
+    }
+
+    if (contratoAtual.status === 'SUSPENSO') {
+      throw new AppError('Este contrato já se encontra suspenso.', 400)
+    }
+
+    // 2. Transação Atômica (Prisma v7+)
+    const resultado = await prisma.$transaction(async (tx) => {
+      const hoje = new Date()
+
+      // A. Atualiza o Contrato
+      const contratoSuspenso = await tx.contrato.update({
+        where: { id: contratoAtual.id },
+        data: {
+          status: 'SUSPENSO',
+          ativo: false,
+          dataFim: hoje
+        }
+      })
+
+      // B. Cancela os Boletos (Imutabilidade Financeira)
+      const notaCancelamento = motivo
+        ? `Cancelado por suspensão de contrato. Motivo: ${motivo}`
+        : 'Cancelado por suspensão de contrato.'
+
+      const boletosCancelados = await tx.boletos.updateMany({
+        where: {
+          escolaId,
+          alunoId: contratoAtual.alunoId,
+          status: 'PENDENTE',
+          dataVencimento: { gt: hoje } // Apenas boletos a vencer
+        },
+        data: {
+          status: 'CANCELADO',
+          observacoes: notaCancelamento
+        }
+      })
+
+      // C. Registro Rigoroso de Auditoria
+      await tx.logAuditoria.create({
+        data: {
+          entidade: 'Contrato',
+          entidadeId: contratoAtual.id,
+          acao: 'SUSPENSAO_CONTRATO',
+          dadosAntigos: JSON.parse(JSON.stringify({ status: contratoAtual.status, ativo: contratoAtual.ativo })),
+          dadosNovos: JSON.parse(JSON.stringify({
+            status: 'SUSPENSO',
+            ativo: false,
+            boletosCancelados: boletosCancelados.count,
+            motivo
+          })),
+          escolaId,
+          ip: req.ip || null
+        }
+      })
+
+      // D. Desvincular o aluno da turma
+      await tx.aluno.update({
+        where: {
+          id: contratoAtual.alunoId,
+          escolaId // Regra de Ouro: Sempre filtrar por escolaId
+        },
+        data: {
+          turmaId: null,
+        }
+      });
+
+      return {
+        contrato: contratoSuspenso,
+        boletosAfetados: boletosCancelados.count
+      }
+    })
+
+    return res.status(200).json({
+      message: 'Contrato suspenso com sucesso.',
+      data: resultado
+    })
+  },
 }

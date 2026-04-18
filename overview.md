@@ -10,15 +10,13 @@ O **EduGestão** é um ERP Educacional de alta performance, baseado em arquitetu
 - **Frontend:** React.js (SPA) com React Router Dom v6, Context API (Estado Global) e Axios (Interceptors).
 
 ## ⚖️ 3. Regras de Ouro (Inquebráveis)
-- **Multi-tenancy Absoluto:** O `escolaId` deve estar presente em 100% das queries. Nenhuma transação pode cruzar os limites do Tenant.
-- **Identificadores Seguros:** Uso exclusivo de UUIDs (v4) no banco e nas URLs. Zero IDs incrementais.
+- **Multi-tenancy Absoluto:** O `escolaId` deve estar presente em 100% das queries. Nenhuma transação pode cruzar os limites do Tenant. sempre em string
+- **Identificadores Seguros:** Uso exclusivo de UUIDs (v4) no banco e nas URLs. Zero IDs incrementais. sempre me string
 - **Imutabilidade Financeira:** Boletos gerados não são sobrescritos; alterações exigem lançamentos de estorno, desconto ou geração de novos títulos para manter a trilha de auditoria.
-- **Soft Delete:** Dados sensíveis (como Alunos e Contratos) nunca recebem `DELETE` real, apenas alteração de status (ex: `INATIVO`).
+- **Soft Delete:** Dados sensíveis (como Alunos e Contratos) nunca recebem `DELETE` real, apenas alteração de status (ex: `SUSPENSO`).
 
 ## 🔄 4. O "Core Business": Motor de Matrícula
 A matrícula é um **Wizard de 5 Etapas** que previne perda de dados e consolida o faturamento:
 1. **Dados Iniciais:** Registro do Aluno e Turma (Gera ID de rascunho).
-2. **Núcleo Familiar:** Vínculo de responsáveis e eleição do Pagador.
+2. **Núcleo Familiar:** Vínculo de responsável.
 3. **Composição Financeira:** Contrato Base + Extras Recorrentes + Itens Avulsos (Fardas/Livros).
-4. **Engenharia de Parcelamento:** Regras de como os itens avulsos serão diluídos nas parcelas mensais.
-5. **Consolidação:** Gravação unificada (Transaction), PDF e Geração de Boletos (Asaas).

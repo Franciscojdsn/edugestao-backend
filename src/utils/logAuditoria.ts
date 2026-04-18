@@ -12,9 +12,11 @@ export interface LogAuditoriaParams {
   ip?: string
 }
 
-export async function logAction(params: LogAuditoriaParams): Promise<void> {
+type PrismaClientOrTransaction = Omit<Prisma.TransactionClient, '$transaction'> | typeof prisma;
+
+export async function logAction(params: LogAuditoriaParams, dbClient: PrismaClientOrTransaction = prisma): Promise<void> {
   try {
-    await prisma.logAuditoria.create({
+    await dbClient.logAuditoria.create({
       data: {
         entidade: params.entidade,
         entidadeId: params.entidadeId,

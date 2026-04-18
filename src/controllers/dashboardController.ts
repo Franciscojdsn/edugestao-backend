@@ -90,12 +90,12 @@ export const dashboardController = {
         _sum: { valorTotal: true }
       }),
 
-      // 5. Pendente Mensal (Boletos Pendentes/Vencidos do Ciclo Atual)
+      // 5. Valores Pendentes Acumulados (Dívida total de qualquer período)
       prisma.boletos.aggregate({
         where: {
           aluno: { escolaId },
           status: { in: ['PENDENTE', 'VENCIDO'] as any },
-          dataVencimento: { gte: inicioCiclo, lte: fimCiclo },
+          dataVencimento: { lte: fimCiclo }, // Removemos o 'gte' para pegar meses retroativos (ex: mês 04)
           deletedAt: null
         },
         _sum: { valorTotal: true }

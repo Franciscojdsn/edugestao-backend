@@ -228,7 +228,7 @@ export const relatorioController = {
         turno: true,
         turma: { select: { nome: true, anoLetivo: true } },
         responsaveis: { select: { nome: true, tipo: true, telefone1: true, email: true } },
-        contrato: { select: { valorMensalidade: true, ativo: true } },
+        contrato: { select: { valorMensalidadeBase: true, ativo: true } },
       },
       orderBy: { nome: 'asc' },
     })
@@ -246,7 +246,7 @@ export const relatorioController = {
           a.turno || '',
           `"${resp.nome || ''}"`,
           resp.telefone1 || '',
-          a.contrato?.valorMensalidade || '0.00',
+          a.contrato?.valorMensalidadeBase || '0.00',
         ].join(',')
       }),
     ].join('\n')

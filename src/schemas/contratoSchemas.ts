@@ -32,3 +32,12 @@ export const listarContratosSchema = z.object({
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
   }).optional(),
 })
+
+export const suspenderContratoSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID do contrato inválido'),
+  }),
+  body: z.object({
+    motivo: z.string().min(5, 'O motivo deve ter no mínimo 5 caracteres').max(255).optional(),
+  }),
+})
