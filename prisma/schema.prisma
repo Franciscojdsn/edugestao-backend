@@ -534,7 +534,12 @@ model Funcionario {
   cargo        CargoFuncionario
   dataAdmissao DateTime         @default(now())
   dataDemissao DateTime?
-  salario      Decimal          @db.Decimal(10, 2)
+  salarioBase      Decimal          @db.Decimal(10, 2)
+  salarioDesconto      Decimal          @db.Decimal(10, 2)
+  salarioAcrescimo      Decimal          @db.Decimal(10, 2)
+  salarioPago      Decimal          @db.Decimal(10, 2)
+
+  StatusFuncionario StatusFuncionario @default(ATIVO)
 
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
@@ -568,6 +573,13 @@ enum CargoFuncionario {
   DIRETOR
   AUXILIAR
   OUTRO
+}
+
+enum StatusFuncionario {
+  ATIVO
+  AFASTADO
+  DEMITIDO
+  APOSENTADO
 }
 
 // Tabela intermediária N:N (Turma - Professor)
