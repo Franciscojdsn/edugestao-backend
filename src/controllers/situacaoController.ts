@@ -128,48 +128,72 @@ export const situacaoController = {
     return res.json(pagamento)
   },
 
-  // POST /pagamentos/:id/registrar - Registrar pagamento como pago
+  /**
+   * POST /pagamentos/:id/registrar
+   * Consolidação da Liquidação Manual com Auditoria e Fluxo de Caixa
+   */
   async registrarPagamento(req: Request, res: Response) {
-    const id = req.params.id as string;
+    console.log(`[SituacaoController] registrarPagamento disparado para o ID: ${req.params.id}`);
+    console.log(`[SituacaoController] Body:`, req.body);
+
+    const { id } = req.params;
+    const idFormatado = Array.isArray(id) ? id[0] : id;
     const { formaPagamento, observacoes } = req.body;
     const escolaId = req.user?.escolaId;
+    const usuarioId = (req as any).user?.id;
 
-    const boleto = await prisma.boletos.findUnique({
-      where: { id },
-      include: { aluno: true }
+    if (!escolaId) throw new AppError('Tenant não identificado', 403);
+
+    const boleto = await prisma.boletos.findFirst({
+      where: { id: idFormatado, escolaId },
+      include: { aluno: { select: { nome: true } } }
     });
 
-    if (!boleto) throw new AppError('Boleto não encontrado', 404)
-    if (boleto.status === 'PAGO') throw new AppError('Boleto já foi pago', 400)
+    if (!boleto) throw new AppError('Boleto não encontrado', 404);
+    if (boleto.status === 'PAGO') throw new AppError('Boleto já foi liquidado', 400);
 
-    // 2. Executar Transação (Garante integridade financeira)
     const resultado = await prisma.$transaction(async (tx) => {
-
-      // A. Criar o registro na tabela de Transações (Fluxo de Caixa / Auditoria)
+      // 1. Criar Movimentação Financeira (Caixa)
       const transacao = await tx.transacao.create({
         data: {
           tipo: 'ENTRADA',
           valor: boleto.valorTotal,
           motivo: 'MENSALIDADE',
-          observacao: `Pgto Boleto Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+          observacao: `Baixa Manual Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
           data: new Date(),
-          formaPagamento: formaPagamento,
-          escolaId: escolaId as string,
+          formaPagamento: formaPagamento || 'DINHEIRO',
+          escolaId: escolaId
         }
       });
 
-      // B. Atualizar o status do Boleto
-      return await tx.boletos.update({
-        where: { id },
+      // 2. Atualizar o Boleto
+      const boletoAtualizado = await tx.boletos.update({
+        where: { id: idFormatado },
         data: {
           status: 'PAGO',
           dataPagamento: new Date(),
           valorPago: boleto.valorTotal,
-          formaPagamento,
+          formaPagamento: formaPagamento || 'DINHEIRO',
           observacoes,
-          transacaoId: transacao.id // Vincula o boleto à transação criada
+          transacaoId: transacao.id
         }
       });
+
+      // 3. Gerar Log de Auditoria Detalhado
+      await tx.logAuditoria.create({
+        data: {
+          entidade: 'BOLETO',
+          entidadeId: idFormatado,
+          acao: 'LIQUIDACAO_MANUAL',
+          dadosAntigos: JSON.parse(JSON.stringify(boleto)),
+          dadosNovos: JSON.parse(JSON.stringify(boletoAtualizado)),
+          usuarioId,
+          escolaId,
+          ip: req.ip || ''
+        }
+      });
+
+      return boletoAtualizado;
     });
 
     return res.json({ message: 'Pagamento registrado com sucesso', data: resultado });

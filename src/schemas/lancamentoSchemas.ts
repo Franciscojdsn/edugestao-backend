@@ -34,3 +34,9 @@ export const listarLancamentosSchema = z.object({
     ano: z.string().optional().transform(v => v ? Number(v) : undefined),
   }),
 })
+
+export const deletarLancamentoSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID inválido'),
+  }),
+})

@@ -7,7 +7,8 @@ import { validate } from '../middlewares/validate'
 import {
     criarLancamentoSchema,
     listarLancamentosSchema,
-    liquidarLancamentoSchema
+    liquidarLancamentoSchema,
+    deletarLancamentoSchema
 } from '../schemas/lancamentoSchemas'
 
 const router = Router()
@@ -34,6 +35,13 @@ router.patch(
     '/lancamentos/:id/liquidar', 
     validate(liquidarLancamentoSchema), 
     lancamentoController.liquidar
+)
+
+// Excluir lançamento (Soft Delete)
+router.delete(
+    '/lancamentos/:id',
+    validate(deletarLancamentoSchema),
+    lancamentoController.delete
 )
 
 /**

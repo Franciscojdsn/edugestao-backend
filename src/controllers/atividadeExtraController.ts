@@ -162,8 +162,8 @@ export const atividadeExtraController = {
         if (!contrato) continue;
 
         // Convertendo para número com segurança 
-        const valorBase = Number(contrato.valorMensalidade);
-        const valorDesconto = Number(contrato.valorDesconto || 0);
+        const valorBase = Number(contrato.valorMensalidadeBase);
+        const valorDesconto = Number(contrato.descontoMensalidade || 0);
 
         const novoValorAtividades = aluno.atividadesExtra.reduce((acc: number, item: any) => {
           const valorItem = item.atividadeExtraId === id

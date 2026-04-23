@@ -32,7 +32,7 @@ export const listarPagamentosSchema = z.object({
 export const registrarPagamentoSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
   body: z.object({
-    dataPagamento: z.coerce.date(),
-    valorPago: z.number().positive(),
+    formaPagamento: z.string().optional(),
+    observacoes: z.string().optional(),
   }),
 })

@@ -98,5 +98,36 @@ export const lancamentoController = {
         })
 
         return res.json(resultado)
+    },
+
+    // Soft delete de lançamento
+    async delete(req: Request, res: Response) {
+        const id = req.params.id as string
+        const escolaId = req.user?.escolaId
+
+        if (!escolaId) {
+            return res.status(401).json({ error: 'Escola não identificada no token.' })
+        }
+
+        // Busca o lançamento garantindo o tenant e que não foi excluído
+        const lancamento = await prisma.lancamento.findFirst({
+            where: { id, escolaId, deletedAt: null }
+        })
+
+        if (!lancamento) {
+            return res.status(404).json({ error: 'Lançamento não encontrado ou acesso negado.' })
+        }
+
+        // Regra de Negócio: Lançamentos pagos não podem ser excluídos diretamente
+        if (lancamento.status === 'PAGO') {
+            return res.status(400).json({ error: 'Lançamentos já liquidados não podem ser excluídos. Realize um estorno.' })
+        }
+
+        await prisma.lancamento.update({
+            where: { id },
+            data: { deletedAt: new Date() }
+        })
+
+        return res.status(204).send()
     }
 }
