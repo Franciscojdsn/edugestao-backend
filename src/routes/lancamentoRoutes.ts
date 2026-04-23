@@ -8,7 +8,8 @@ import {
     criarLancamentoSchema,
     listarLancamentosSchema,
     liquidarLancamentoSchema,
-    deletarLancamentoSchema
+    deletarLancamentoSchema,
+    estornarLancamentoSchema
 } from '../schemas/lancamentoSchemas'
 
 const router = Router()
@@ -35,6 +36,13 @@ router.patch(
     '/lancamentos/:id/liquidar', 
     validate(liquidarLancamentoSchema), 
     lancamentoController.liquidar
+)
+
+// Estornar lançamento (Gera transação compensatória e log)
+router.post(
+    '/lancamentos/:id/estorno',
+    validate(estornarLancamentoSchema),
+    lancamentoController.estornar
 )
 
 // Excluir lançamento (Soft Delete)

@@ -129,5 +129,75 @@ export const lancamentoController = {
         })
 
         return res.status(204).send()
+    },
+
+    // Estornar um lançamento pago
+    async estornar(req: Request, res: Response) {
+        const id = req.params.id as string
+        const { motivo } = req.body
+        const escolaId = req.user?.escolaId
+        const usuarioId = req.user?.userId
+
+        if (!escolaId) {
+            return res.status(401).json({ error: 'Escola não identificada no token.' })
+        }
+
+        const lancamento = await prisma.lancamento.findFirst({
+            where: { id, escolaId, deletedAt: null }
+        })
+
+        if (!lancamento) {
+            return res.status(404).json({ error: 'Lançamento não encontrado.' })
+        }
+
+        if (lancamento.status !== 'PAGO') {
+            return res.status(400).json({ error: 'Apenas lançamentos pagos podem ser estornados.' })
+        }
+
+        // Lógica de status pós-estorno baseada no vencimento
+        const hoje = new Date()
+        hoje.setHours(0, 0, 0, 0)
+        const dataVencimento = new Date(lancamento.dataVencimento)
+        dataVencimento.setHours(0, 0, 0, 0)
+
+        const novoStatus = dataVencimento < hoje ? 'VENCIDO' : 'PENDENTE'
+
+        const resultado = await prisma.$transaction(async (tx) => {
+            // 1. Atualizar o Lançamento original
+            const atualizado = await tx.lancamento.update({
+                where: { id },
+                data: {
+                    status: novoStatus,
+                    dataLiquidacao: null
+                }
+            })
+
+            // 2. Criar Transação Compensatória (Inversa)
+            await tx.transacao.create({
+                data: {
+                    escolaId: lancamento.escolaId,
+                    tipo: lancamento.tipo === 'ENTRADA' ? 'SAIDA' : 'ENTRADA',
+                    valor: lancamento.valor,
+                    motivo: `ESTORNO: ${lancamento.descricao}`,
+                    data: new Date(),
+                    formaPagamento: 'TRANSFERENCIA'
+                }
+            })
+
+            // 3. Log de Auditoria
+            await tx.logAuditoria.create({
+                data: {
+                    escolaId,
+                    usuarioId: usuarioId!,
+                    acao: 'ESTORNO_LANCAMENTO',
+                    entidade: 'LANCAMENTO',
+                    entidadeId: id,
+                }
+            })
+
+            return atualizado
+        })
+
+        return res.json(resultado)
     }
 }

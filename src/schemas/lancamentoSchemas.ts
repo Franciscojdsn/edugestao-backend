@@ -40,3 +40,12 @@ export const deletarLancamentoSchema = z.object({
     id: z.string().uuid('ID inválido'),
   }),
 })
+
+export const estornarLancamentoSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID inválido'),
+  }),
+  body: z.object({
+    motivo: z.string().min(5, 'O motivo do estorno deve ter pelo menos 5 caracteres'),
+  }),
+})
