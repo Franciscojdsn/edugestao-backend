@@ -8,6 +8,7 @@ import {
   atualizarFuncionarioSchema,
   editarFuncionarioSchema,
   listarFuncionariosSchema,
+  registrarPagamentoSchema,
   idFuncionarioSchema,
 } from '../schemas/funcionarioSchemas'
 
@@ -52,6 +53,16 @@ router.post(
   '/',
   validate(criarFuncionarioSchema),
   funcionarioController.create
+)
+
+/**
+ * POST /funcionarios/:id/pagar-salario
+ * Registra pagamento de salário e gera lançamento financeiro
+ */
+router.post(
+  '/:id/pagar-salario',
+  validate(registrarPagamentoSchema),
+  funcionarioController.registrarPagamento
 )
 
 /**

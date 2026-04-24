@@ -99,6 +99,12 @@ export const funcionarioController = {
       include: {
         endereco: true,
         dadosBancarios: true, // Adicionado para carregar dados bancários
+        pagamentoSalarios: {
+          orderBy: [
+            { anoReferencia: 'desc' },
+            { mesReferencia: 'desc' }
+          ]
+        },
         turmas: {
           select: {
             turma: {
@@ -305,6 +311,79 @@ export const funcionarioController = {
 
     return res.json(resultado)
   },
+
+    /**
+     * POST /funcionarios/:id/pagar-salario - Registrar pagamento de salário
+     */
+    async registrarPagamento(req: Request, res: Response) {
+      const { id } = req.params
+      const idFormatado = Array.isArray(id) ? id[0] : id
+      const escolaId = req.user?.escolaId
+      const usuarioLogadoId = req.user?.userId
+
+      const {
+        mesReferencia,
+        anoReferencia,
+        salarioBase,
+        salarioAcrescimos,
+        salarioDesconto,
+        formaPagamento,
+        observacoes
+      } = req.body
+
+      // 1. Validar existência e status do funcionário
+      const funcionario = await prisma.funcionario.findFirst({
+        where: withTenancy({ id: idFormatado, statusFuncionario: 'ATIVO' as any })
+      })
+
+      if (!funcionario) {
+        throw new AppError('Funcionário não encontrado ou não está ativo no sistema.', 404)
+      }
+
+      // 2. Cálculo Blindado do Valor Líquido
+      const valorLiquido = Number(salarioBase) + Number(salarioAcrescimos) - Number(salarioDesconto)
+
+      // 3. Executar Transação Atômica
+      const resultado = await prisma.$transaction(async (tx) => {
+        // Passo A: Criar o Lançamento Financeiro (Caixa)
+        const lancamento = await tx.lancamento.create({
+          data: {
+            tipo: 'SAIDA',
+            categoria: 'FOLHA_PAGAMENTO',
+            status: 'PAGO',
+            valor: valorLiquido,
+            descricao: `Pagamento de Salário - ${funcionario.nome} - Ref: ${mesReferencia}/${anoReferencia}`,
+            dataVencimento: new Date(),
+            dataLiquidacao: new Date(),
+            escolaId: escolaId!
+          }
+        })
+
+        // Passo B: Criar o Registro de Pagamento de Salário (RH)
+        const pagamento = await tx.pagamentoSalario.create({
+          data: {
+            funcionarioId: idFormatado,
+            lancamentoId: lancamento.id,
+            salarioBase,
+            salarioAcrescimos,
+            salarioDesconto,
+            valorLiquido,
+            mesReferencia,
+            anoReferencia,
+            formaPagamento,
+            observacoes,
+            escolaId: escolaId!
+          }
+        })
+
+        return pagamento
+      })
+
+      return res.status(201).json({
+        message: 'Pagamento de salário registrado com sucesso.',
+        data: resultado
+      })
+    },
 
     /**
      * DELETE /funcionarios/:id - Soft delete

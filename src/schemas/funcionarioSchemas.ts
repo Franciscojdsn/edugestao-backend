@@ -214,6 +214,24 @@ export const listarFuncionariosSchema = z.object({
 })
 
 /**
+ * Schema para registrar pagamento de salário
+ */
+export const registrarPagamentoSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID de funcionário inválido'),
+  }),
+  body: z.object({
+    mesReferencia: z.number().int().min(1).max(12),
+    anoReferencia: z.number().int().min(2000),
+    salarioBase: z.number().nonnegative('O salário base é obrigatório'),
+    salarioAcrescimos: z.number().nonnegative().default(0),
+    salarioDesconto: z.number().nonnegative().default(0),
+    formaPagamento: z.enum(['PIX', 'CONTA BANCARIA', 'DINHEIRO']),
+    observacoes: z.string().optional(),
+  }),
+})
+
+/**
  * Schema para buscar por ID
  */
 export const idFuncionarioSchema = z.object({
