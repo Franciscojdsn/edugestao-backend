@@ -25,5 +25,10 @@ router.post(
   validate(suspenderContratoSchema),
   contratoController.suspender
 )
+router.patch(
+  '/:id/financeiro',
+  checkRole(['ADMIN', 'SECRETARIA']),
+  contratoController.updateFinanceiro
+)
 
 export { router as contratoRoutes }

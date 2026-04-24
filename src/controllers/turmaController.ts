@@ -89,8 +89,8 @@ export const turmaController = {
       where: { id, escolaId },
       include: {
         professores: {
-          include: {
-            professor: { select: { nome: true } }
+          include: { // Inclui o objeto completo do professor para ter acesso ao ID
+            professor: true
           }
         },
         disciplinas: {
@@ -126,7 +126,8 @@ export const turmaController = {
 
     const response = {
       ...turma,
-      professorPrincipal: turma.professores.find(p => p.isPrincipal)?.professor.nome || 'Sem Professor',
+      professorPrincipal: turma.professores.find(p => p.isPrincipal)?.professor.nome || 'Sem Professor', // Mantém para exibição
+      professorResponsavelId: turma.professores.find(p => p.isPrincipal)?.professor.id || null, // Adiciona o ID para o formulário
       totalAlunosAtivos: turma.alunos.length,
       alunos: turma.alunos.map(aluno => ({
         ...aluno,
@@ -194,8 +195,19 @@ export const turmaController = {
    */
   async update(req: Request, res: Response) {
     const id = req.params.id as string;
-    const dados = req.body
+    // Desestruturação defensiva para remover campos indesejados que o front possa enviar
+    const { 
+      professorResponsavelId, 
+      ano: _ano, // Descartado: campo legado que causa o erro PrismaClientValidationError
+      id: _id, // Descartado: o ID vem dos parâmetros da URL
+      escolaId: _escolaId, // Descartado: escolaId vem do req.user
+      createdAt: _createdAt, 
+      updatedAt: _updatedAt,
+      _count: _count,
+      ...dados 
+    } = req.body;
     const escolaId = req.user?.escolaId;
+    const usuarioId = req.user?.userId;
 
     // Verificar se turma existe e pertence à escola
     const turmaExistente = await prisma.turma.findFirst({
@@ -225,18 +237,72 @@ export const turmaController = {
       }
     }
 
-    // Atualizar
-    const turma = await prisma.turma.update({
-      where: { id },
-      data: dados,
-      include: {
-        _count: {
-          select: { alunos: true, disciplinas: true }
+    // Executar atualização com Auditoria em Transação
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Atualizar o Professor Responsável (Vínculo N:N)
+      // Se o campo foi enviado no payload (mesmo que seja null para desvincular)
+      if (professorResponsavelId !== undefined) {
+        // A. Removemos o status de 'principal' de qualquer professor atual desta turma
+        await tx.turmaProfessor.updateMany({
+          where: { turmaId: id, isPrincipal: true },
+          data: { isPrincipal: false }
+        });
+
+        // B. Se um ID de professor foi fornecido, definimos como o novo principal
+        if (professorResponsavelId) {
+          await tx.turmaProfessor.upsert({
+            where: {
+              turmaId_professorId: {
+                turmaId: id,
+                professorId: professorResponsavelId
+              }
+            },
+            update: { isPrincipal: true },
+            create: {
+              turmaId: id,
+              professorId: professorResponsavelId,
+              isPrincipal: true
+            }
+          });
         }
-      },
+      }
+
+      // 2. Atualizar os dados da Turma
+      const turma = await tx.turma.update({
+        where: { id },
+        data: {
+          ...dados,
+          anoLetivo: dados.anoLetivo ? Number(dados.anoLetivo) : undefined,
+          capacidadeMaxima: dados.capacidadeMaxima ? Number(dados.capacidadeMaxima) : undefined,
+        },
+        include: {
+          _count: {
+            select: { alunos: true, disciplinas: true }
+          }
+        },
+      });
+
+      // Auditoria: Verificar se campos sensíveis foram alterados
+      const alterouNome = dados.nome && dados.nome !== turmaExistente.nome;
+      const alterouCapacidade = dados.capacidadeMaxima !== undefined && Number(dados.capacidadeMaxima) !== turmaExistente.capacidadeMaxima;
+
+      if (alterouNome || alterouCapacidade) {
+        await tx.logAuditoria.create({
+          data: {
+            entidade: 'TURMA',
+            entidadeId: id,
+            acao: 'ATUALIZACAO_DADOS_MESTRES',
+            usuarioId: usuarioId!,
+            escolaId: escolaId!,
+            ip: req.ip || ''
+          }
+        });
+      }
+
+      return turma;
     });
 
-    return res.json(turma)
+    return res.json(resultado);
   },
 
   /**

@@ -236,7 +236,8 @@ export const funcionarioController = {
       deletedAt: _deletedAt, // Descartado: metadado
       turmas: _turmas, // Descartado: relação (se o frontend enviar)
       enderecoId: _enderecoId, // Descartado: ID da relação (usamos o objeto endereco)
-      _count: _count, // Descartado: metadado (se o frontend enviar)
+      pagamentoSalarios: _pagamentoSalarios, // Descartado: relação (não deve ser atualizada por aqui)
+      _count: _count, // Descartado: metadado
       // Campos com tratamento especial
       endereco,
       dataAdmissao,

@@ -31,9 +31,6 @@ export const criarAlunoSchema = z.object({
       .min(1, 'Número de matrícula é obrigatório')
       .max(50, 'Matrícula muito longa'),
 
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'], {
-      error: () => ({ message: 'Turno inválido' })
-    }).optional(),
 
     turmaId: z.string()
       .uuid('ID de turma inválido')
@@ -67,8 +64,6 @@ export const atualizarAlunoSchema = z.object({
       .optional()
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
 
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
-      .optional(),
 
     turmaId: z.string()
       .uuid('ID de turma inválido')
@@ -101,8 +96,6 @@ export const listarAlunosSchema = z.object({
       .uuid('ID de turma inválido')
       .optional(),
 
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
-      .optional(),
 
     busca: z.string()
       .min(1)

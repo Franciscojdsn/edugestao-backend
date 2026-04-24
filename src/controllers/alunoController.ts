@@ -215,9 +215,11 @@ export const alunoController = {
     }
 
     // Se forneceu turmaId, verificar se existe e pertence à escola
-    if (dados.turmaId) {
+    const { dataNascimento, turmaId, ...restDados } = dados;
+
+    if (turmaId) {
       const turma = await prisma.turma.findFirst({
-        where: withEscolaId({ id: dados.turmaId }),
+        where: withEscolaId({ id: turmaId }),
       })
 
       if (!turma) {
@@ -225,13 +227,12 @@ export const alunoController = {
       }
     }
 
-    const { dataNascimento } = dados;
-
     // Criar aluno
     const aluno = await prisma.aluno.create({
       data: {
-        ...dados,
+        ...restDados,
         escolaId,
+        ...(turmaId && { turma: { connect: { id: turmaId } } }),
         dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
       },
       include: {
@@ -252,51 +253,97 @@ export const alunoController = {
    */
   async update(req: Request, res: Response) {
     const { id } = req.params
-    const dados = req.body
+
+    // 1. Blindagem Arquitural: Whitelist estrita de campos cadastrais, de saúde e endereço.
+    // Campos financeiros, de contrato ou metadados de sistema são estritamente ignorados.
+    const {
+      nome,
+      dataNascimento,
+      genero,
+      cpf,
+      numeroSus,
+      planoSaude,
+      hospital,
+      matriculaPlano,
+      turmaId,
+      turno,
+      // Dados de endereço (mapeados para a tabela relacionada)
+      cep,
+      logradouro, // Mapeia para 'rua' no schema
+      numero,
+      complemento,
+      bairro,
+      cidade,
+      estado,
+    } = req.body
+
     const idFormatado = Array.isArray(id) ? id[0] : id
 
-    // Verificar se aluno existe e pertence à escola
+    // 2. Verificar se aluno existe e pertence à escola (Multi-tenancy)
     const alunoExistente = await prisma.aluno.findFirst({
       where: withTenancy({ id: idFormatado }),
     })
-
     if (!alunoExistente) {
       throw new AppError('Aluno não encontrado', 404)
     }
 
-    // Se está alterando número de matrícula, verificar duplicação
-    if (dados.numeroMatricula && dados.numeroMatricula !== alunoExistente.numeroMatricula) {
-      const matriculaEmUso = await prisma.aluno.findFirst({
-        where: withEscolaId({
-          numeroMatricula: dados.numeroMatricula,
-          id: { not: idFormatado },
-        }),
-      })
-
-      if (matriculaEmUso) {
-        throw new AppError('Número de matrícula já está em uso', 400)
-      }
-    }
-
-    // Se está vinculando a uma turma, verificar se existe
-    if (dados.turmaId) {
+    // 3. Validação de Turma (se fornecida no payload)
+    if (turmaId) {
       const turma = await prisma.turma.findFirst({
-        where: withEscolaId({ id: dados.turmaId }),
+        where: withEscolaId({ id: turmaId }),
       })
-
       if (!turma) {
         throw new AppError('Turma não encontrada', 404)
       }
     }
 
-    // Atualizar
+    // 4. Preparação do Update de Endereço (Nested Upsert)
+    const hasEnderecoData = !!(cep || logradouro || numero || bairro || cidade || estado);
+    const enderecoUpdate = hasEnderecoData ? {
+      upsert: {
+        create: {
+          cep: cep || '',
+          rua: logradouro || '',
+          numero: numero ? String(numero) : '',
+          complemento,
+          bairro: bairro || '',
+          cidade: cidade || '',
+          estado: estado || '',
+        },
+        update: {
+          cep,
+          rua: logradouro,
+          numero: numero ? String(numero) : undefined,
+          complemento,
+          bairro,
+          cidade,
+          estado,
+        }
+      }
+    } : undefined;
+
+    // 5. Persistência Controlada: Somente campos seguros e higienizados são repassados ao Prisma
     const aluno = await prisma.aluno.update({
       where: { id: idFormatado },
       data: {
-        ...dados,
-        dataNascimento: dados.dataNascimento
-          ? new Date(dados.dataNascimento)
-          : undefined,
+        nome,
+        genero,
+        cpf,
+        // Correção do erro Prisma: Usar relação nested em vez de scalar field
+        ...(turmaId !== undefined && {
+          turma: turmaId ? { connect: { id: turmaId } } : { disconnect: true }
+        }),
+        ...(turno !== undefined && { turno }),
+        // Dados de saúde (Nota: Garanta que estes campos existam no seu schema Aluno)
+        ...(numeroSus !== undefined && { numeroSus }),
+        ...(planoSaude !== undefined && { planoSaude: Boolean(planoSaude) }),
+        ...(hospital !== undefined && { hospital }),
+        ...(matriculaPlano !== undefined && { matriculaPlano }),
+        
+        dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
+        
+        // Atualização aninhada do endereço
+        endereco: enderecoUpdate,
       },
       include: {
         turma: {

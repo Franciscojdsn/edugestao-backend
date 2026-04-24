@@ -60,6 +60,12 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+// Logger de Requisições para Debug
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Health check
 app.get('/health', (req, res) => {
   return res.json({ 
