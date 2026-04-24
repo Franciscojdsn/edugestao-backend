@@ -12,20 +12,20 @@ export const funcionarioController = {
    * GET /funcionarios - Listar com filtros e paginação
    */
   async list(req: Request, res: Response) {
-    const { 
-      page = 1, 
-      limit = 20, 
-      cargo, 
-      busca 
+    const {
+      page = 1,
+      limit = 20,
+      cargo,
+      busca
     } = req.query
 
     const skip = (Number(page) - 1) * Number(limit)
 
     // Construir filtros
     let where: any = {}
-    
+
     if (cargo) where.cargo = cargo
-    
+
     // Busca por nome ou CPF
     if (busca) {
       where.OR = [
@@ -98,6 +98,7 @@ export const funcionarioController = {
       where: withTenancy({ id: idFormatado }),
       include: {
         endereco: true,
+        dadosBancarios: true, // Adicionado para carregar dados bancários
         turmas: {
           select: {
             turma: {
@@ -128,7 +129,7 @@ export const funcionarioController = {
    * POST /funcionarios - Criar novo funcionário
    */
   async create(req: Request, res: Response) {
-    const dados = req.body
+    const { salarioBase, dadosBancarios, endereco, ...dados } = req.body
     const escolaId = req.user?.escolaId
 
     if (!escolaId) {
@@ -157,38 +158,59 @@ export const funcionarioController = {
     const funcionario = await prisma.funcionario.create({
       data: {
         ...dados,
-        escolaId,
-        dataAdmissao: dados.dataAdmissao 
-          ? new Date(dados.dataAdmissao) 
-          : undefined,
+        dataAdmissao: dados.dataAdmissao ? new Date(dados.dataAdmissao) : undefined,
+        salarioBase: Number(salarioBase),
+
+        // SOLUÇÃO: Use o 'connect' em vez de passar a string direto
+        escola: {
+          connect: { id: escolaId }
+        },
+
+        endereco: endereco ? {
+          create: endereco
+        } : undefined,
+
+        dadosBancarios: dadosBancarios ? {
+          create: {
+            ...dadosBancarios,
+            escolaId // Aqui dentro não tem problema, pois é a criação da tabela filha
+          }
+        } : undefined
+      },
+      include: {
+        endereco: true,
+        dadosBancarios: true
       },
     })
 
-    return res.status(201).json(funcionario)
-  },
+  return res.status(201).json(funcionario)
+},
 
   /**
    * PUT /funcionarios/:id - Atualizar funcionário
    */
   async update(req: Request, res: Response) {
     const { id } = req.params
-    const dados = req.body
     const idFormatado = Array.isArray(id) ? id[0] : id
+    const escolaId = req.user?.escolaId
+    const usuarioLogadoId = req.user?.userId
+
+    if (!escolaId) throw new AppError('Escola não identificada', 400)
 
     // Verificar se funcionário existe e pertence à escola
     const funcionarioExistente = await prisma.funcionario.findFirst({
       where: withTenancy({ id: idFormatado }),
+      include: { dadosBancarios: true }
     })
-
     if (!funcionarioExistente) {
       throw new AppError('Funcionário não encontrado', 404)
     }
 
     // Se está alterando CPF, verificar duplicação
-    if (dados.cpf && dados.cpf !== funcionarioExistente.cpf) {
+    if (req.body.cpf && req.body.cpf !== funcionarioExistente.cpf) { // Manter req.body.cpf para a validação inicial antes da desestruturação completa
       const cpfEmUso = await prisma.funcionario.findFirst({
         where: withEscolaId({
-          cpf: dados.cpf,
+          cpf: req.body.cpf, // Usar req.body.cpf aqui
           id: { not: idFormatado },
         }),
       })
@@ -198,51 +220,131 @@ export const funcionarioController = {
       }
     }
 
-    // Converter dataAdmissao se fornecido
-    if (dados.dataAdmissao) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dados.dataAdmissao)) {
-        dados.dataAdmissao = new Date(dados.dataAdmissao).toISOString()
+    // Desestruturação rigorosa para limpar o payload de dados indesejados
+    // e isolar campos com tratamento especial.
+    const {
+      id: _id, // Descartado: ID vem dos params
+      escolaId: _escolaId, // Descartado: escolaId vem do req.user
+      createdAt: _createdAt, // Descartado: metadado
+      updatedAt: _updatedAt, // Descartado: metadado
+      deletedAt: _deletedAt, // Descartado: metadado
+      turmas: _turmas, // Descartado: relação (se o frontend enviar)
+      enderecoId: _enderecoId, // Descartado: ID da relação (usamos o objeto endereco)
+      _count: _count, // Descartado: metadado (se o frontend enviar)
+      // Campos com tratamento especial
+      endereco,
+      dataAdmissao,
+      salarioBase,
+      dadosBancarios,
+      // Agrupa todos os outros campos válidos (nome, cpf, cargo, email, telefone, etc.)
+      ...dadosLimpos
+    } = req.body
+
+    // Sanitização profunda para o Prisma (remover IDs e metadados de objetos aninhados)
+    const cleanEndereco = endereco ? (() => {
+      const { id, createdAt, updatedAt, ...rest } = endereco;
+      return rest;
+    })() : undefined;
+
+    const cleanDadosBancarios = dadosBancarios ? (() => {
+      const { id, createdAt, updatedAt, escolaId: _e, ...rest } = dadosBancarios;
+      return rest;
+    })() : undefined;
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Auditoria de Salário
+      if (salarioBase !== undefined && Number(salarioBase) !== Number(funcionarioExistente.salarioBase)) {
+        await tx.logAuditoria.create({
+          data: {
+            entidade: 'FUNCIONARIO',
+            entidadeId: idFormatado,
+            acao: 'ALTERACAO_SALARIO',
+            usuarioId: usuarioLogadoId,
+            escolaId: escolaId!, // Garantir que escolaId não é undefined
+            ip: req.ip || ''
+          }
+        })
+      }
+
+      // 2. Auditoria de Dados Bancários (Simplificada para aceitar ambos)
+      if (dadosBancarios) {
+        await tx.logAuditoria.create({
+          data: {
+            entidade: 'FUNCIONARIO',
+            entidadeId: idFormatado,
+            acao: 'ALTERACAO_DADOS_BANCARIOS',
+            usuarioId: usuarioLogadoId,
+            escolaId: escolaId!, // Garantir que escolaId não é undefined
+            ip: req.ip || ''
+          }
+        })
+      }
+
+      return tx.funcionario.update({
+        where: { id: idFormatado },
+        data: {
+          ...dadosLimpos, // Campos válidos restantes
+          salarioBase: salarioBase !== undefined ? Number(salarioBase) : undefined,
+          dataAdmissao: dataAdmissao ? new Date(dataAdmissao) : undefined,
+          endereco: endereco ? {
+            upsert: {
+              create: cleanEndereco,
+              update: cleanEndereco
+            }
+          } : undefined,
+          dadosBancarios: dadosBancarios ? {
+            upsert: {
+              create: { ...cleanDadosBancarios, escolaId },
+              update: { ...cleanDadosBancarios }
+            }
+          } : undefined
+        },
+        include: { endereco: true, dadosBancarios: true }
+      })
+    })
+
+    return res.json(resultado)
+  },
+
+    /**
+     * DELETE /funcionarios/:id - Soft delete
+     */
+    async delete (req: Request, res: Response) {
+  const { id } = req.params
+  const idFormatado = Array.isArray(id) ? id[0] : id
+
+  // Verificar se funcionário existe e pertence à escola
+  const funcionario = await prisma.funcionario.findFirst({
+    where: withTenancy({ id: idFormatado }),
+    include: {
+      _count: {
+        select: { turmas: true }
       }
     }
+  })
 
-    // Atualizar
-    const funcionario = await prisma.funcionario.update({
-      where: { id: idFormatado },
-      data: {
-        ...dados,
-        dataAdmissao: dados.dataAdmissao 
-          ? new Date(dados.dataAdmissao) 
-          : undefined,
-      },
-    })
+  if (!funcionario) {
+    throw new AppError('Funcionário não encontrado', 404)
+  }
 
-    return res.json(funcionario)
-  },
+  // Regra de Segurança: Impedir demissão de professores com turmas ativas
+  if (funcionario._count.turmas > 0) {
+    throw new AppError(
+      'Não é possível demitir um colaborador com turmas sob sua responsabilidade. Realize a substituição do professor antes da demissão.',
+      400
+    )
+  }
 
-  /**
-   * DELETE /funcionarios/:id - Soft delete
-   */
-  async delete(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
+  // Soft delete com alteração de status e data de demissão
+  await prisma.funcionario.update({
+    where: { id: idFormatado },
+    data: {
+      statusFuncionario: 'DEMITIDO',
+      dataDemissao: new Date(),
+      deletedAt: new Date(),
+    },
+  })
 
-    // Verificar se funcionário existe e pertence à escola
-    const funcionario = await prisma.funcionario.findFirst({
-      where: withTenancy({ id: idFormatado }),
-    })
-
-    if (!funcionario) {
-      throw new AppError('Funcionário não encontrado', 404)
-    }
-
-    // Soft delete
-    await prisma.funcionario.update({
-      where: { id: idFormatado },
-      data: { 
-        deletedAt: new Date(),
-      },
-    })
-
-    return res.status(204).send()
-  },
+  return res.status(204).send()
+},
 }

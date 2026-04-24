@@ -3,7 +3,7 @@
 
 generator client {
   provider   = "prisma-client-js"
-  engineType = "binary" 
+  engineType = "binary"
 }
 
 datasource db {
@@ -21,7 +21,7 @@ model Escola {
   cnpj     String  @unique
   telefone String?
   email    String?
-  logo     String? 
+  logo     String?
 
   // Configurações padrão
   mensalidadePadrao Decimal @default(0) @db.Decimal(10, 2)
@@ -31,26 +31,27 @@ model Escola {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos
-  usuarios        Usuario[]
-  alunos          Aluno[]
-  funcionarios    Funcionario[]
-  turmas          Turma[]
-  disciplinas     Disciplina[]
-  transacoes      Transacao[]
-  atividadesExtra AtividadeExtra[]
-  comunicados     Comunicado[]
-  matriculas      Matricula[]
-  rematriculas    Rematricula[]
-  ocorrencias     Ocorrencia[]
-  eventos         Evento[]
-  logAuditorias   LogAuditoria[]
-  lancamentos     Lancamento[]
-  frequencias     Frequencia[]
-  gradeHorarias   GradeHoraria[]
-  cronogramaProva CronogramaProva[]
-  contratoes      Contrato[]
-  boletos         Boletos[]
-  responsavels    Responsavel[]
+  usuarios          Usuario[]
+  alunos            Aluno[]
+  funcionarios      Funcionario[]
+  turmas            Turma[]
+  disciplinas       Disciplina[]
+  transacoes        Transacao[]
+  atividadesExtra   AtividadeExtra[]
+  comunicados       Comunicado[]
+  matriculas        Matricula[]
+  rematriculas      Rematricula[]
+  ocorrencias       Ocorrencia[]
+  eventos           Evento[]
+  logAuditorias     LogAuditoria[]
+  lancamentos       Lancamento[]
+  frequencias       Frequencia[]
+  gradeHorarias     GradeHoraria[]
+  cronogramaProva   CronogramaProva[]
+  contratoes        Contrato[]
+  boletos           Boletos[]
+  responsavels      Responsavel[]
+  pagamentoSalarios PagamentoSalario[]
 
   @@map("escolas")
 }
@@ -250,7 +251,7 @@ model Contrato {
   responsavelFinanceiro   Responsavel @relation(fields: [responsavelFinanceiroId], references: [id], onDelete: Restrict)
 
   escolaId String
-  escola   Escola  @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -534,12 +535,9 @@ model Funcionario {
   cargo        CargoFuncionario
   dataAdmissao DateTime         @default(now())
   dataDemissao DateTime?
-  salarioBase      Decimal          @db.Decimal(10, 2)
-  salarioDesconto      Decimal          @db.Decimal(10, 2)
-  salarioAcrescimo      Decimal          @db.Decimal(10, 2)
-  salarioPago      Decimal          @db.Decimal(10, 2)
+  salarioBase  Decimal          @db.Decimal(10, 2)
 
-  StatusFuncionario StatusFuncionario @default(ATIVO)
+  statusFuncionario StatusFuncionario @default(ATIVO)
 
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
@@ -559,6 +557,8 @@ model Funcionario {
   ocorrencias           Ocorrencia[]
   disciplinasLecionadas TurmaDisciplina[]
   lancamentos           Lancamento[]
+  pagamentoSalarios     PagamentoSalario[]
+  dadosBancarios        DadosBancarios?
 
   @@index([escolaId])
   @@index([cargo])
@@ -580,6 +580,88 @@ enum StatusFuncionario {
   AFASTADO
   DEMITIDO
   APOSENTADO
+}
+
+model PagamentoSalario {
+  id String @id @default(uuid())
+
+  // Referência Temporal 
+  mesReferencia Int
+  anoReferencia Int
+
+  // Valores do Mês 
+  salarioBase       Decimal @db.Decimal(10, 2)
+  salarioAcrescimos Decimal @default(0) @db.Decimal(10, 2)
+  salarioDesconto   Decimal @default(0) @db.Decimal(10, 2)
+  valorLiquido      Decimal @db.Decimal(10, 2) // Calculado: Base + Acrescimos - Descontos
+  observacoes       String?
+
+  // Dados de Pagamento
+  dataPagamento  DateTime        @default(now())
+  formaPagamento String
+  status         StatusPagamento @default(PAGO)
+
+  // Relacionamentos e Isolamento
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id])
+
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
+  // O Vínculo com o Caixa Geral
+  lancamentoId String?     @unique
+  lancamento   Lancamento? @relation(fields: [lancamentoId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@index([funcionarioId])
+  @@index([mesReferencia, anoReferencia])
+  @@map("pagamentos_salarios")
+}
+
+// Tabela intermediária 1:1 Dados bancários do funcionário
+model DadosBancarios {
+  id String @id @default(uuid())
+
+  // Detalhes da Conta
+  banco         String? // Nome ou Código do Banco (Ex: 001 - Banco do Brasil)
+  agencia       String?
+  agenciaDigito String?
+  conta         String?
+  contaDigito   String?
+  tipoConta     TipoConta @default(CORRENTE)
+
+  // Detalhes do PIX
+  tipoChavePix TipoChavePix?
+  chavePix     String?
+
+  // Relacionamento
+  funcionarioId String      @unique // Um conjunto de dados bancários por funcionário
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+
+  escolaId String
+
+  updatedAt DateTime @updatedAt
+
+  @@index([escolaId])
+  @@map("dados_bancarios_funcionarios")
+}
+
+enum TipoConta {
+  CORRENTE
+  POUPANCA
+  SALARIO
+  PAGAMENTO
+}
+
+enum TipoChavePix {
+  CPF
+  CNPJ
+  EMAIL
+  TELEFONE
+  ALEATORIA
 }
 
 // Tabela intermediária N:N (Turma - Professor)
@@ -1044,11 +1126,12 @@ model Lancamento {
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
 
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  deletedAt     DateTime?
-  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id])
-  responsavelId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  responsavel      Responsavel?      @relation(fields: [responsavelId], references: [id])
+  responsavelId    String?
+  pagamentoSalario PagamentoSalario?
 
   @@index([escolaId])
   @@index([tipo])

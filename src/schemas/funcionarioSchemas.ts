@@ -5,6 +5,26 @@ import { z } from 'zod'
 // ============================================
 
 /**
+ * Enums Bancários (Equivalentes ao Prisma)
+ */
+const TipoConta = z.enum(['CORRENTE', 'POUPANCA']);
+const TipoChavePix = z.enum(['CPF', 'CNPJ', 'EMAIL', 'TELEFONE', 'ALEATORIA']);
+
+/**
+ * Schema de Dados Bancários com Validação Condicional
+ */
+export const dadosBancariosSchema = z.object({
+  banco: z.string().optional(),
+  agencia: z.string().optional(),
+  agenciaDigito: z.string().optional(),
+  conta: z.string().optional(),
+  contaDigito: z.string().optional(),
+  tipoConta: TipoConta.default('CORRENTE'),
+  chavePix: z.string().optional(),
+  tipoChavePix: TipoChavePix.optional(),
+});
+
+/**
  * Schema para criar funcionário
  */
 export const criarFuncionarioSchema = z.object({
@@ -44,14 +64,24 @@ export const criarFuncionarioSchema = z.object({
       .datetime({ message: 'Data inválida (formato ISO)' })
       .optional()
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (formato: YYYY-MM-DD)').optional()),
+
+    salarioBase: z.number().nonnegative('O salário não pode ser negativo'),
     
-    salario: z.number()
-      .positive('Salário deve ser positivo')
-      .optional(),
-    
-    enderecoId: z.string()
-      .uuid('ID de endereço inválido')
-      .optional(),
+    // Validação para criação aninhada do endereço
+    endereco: z.object({
+      rua: z.string().min(3, 'Rua muito curta').max(200),
+      numero: z.string().max(20),
+      complemento: z.string().max(100).optional(),
+      bairro: z.string().min(3, 'Bairro muito curto').max(100),
+      cidade: z.string().min(3, 'Cidade muito curta').max(100),
+      estado: z.string().length(2, 'Use a sigla (Ex: SP)').toUpperCase(),
+      cep: z.string()
+        .regex(/^\d{5}-\d{3}$/, 'CEP inválido (formato: 00000-000)'),
+    }).optional(),
+
+    enderecoId: z.string().uuid('ID de endereço inválido').optional(),
+
+    dadosBancarios: dadosBancariosSchema.optional(),
   }),
 })
 
@@ -76,9 +106,8 @@ export const atualizarFuncionarioSchema = z.object({
       'PROFESSOR',
       'COORDENADOR',
       'DIRETOR',
-      'SECRETARIO',
+      'SECRETARIA',
       'AUXILIAR',
-      'ZELADOR',
       'OUTRO'
     ]).optional(),
     
@@ -100,14 +129,57 @@ export const atualizarFuncionarioSchema = z.object({
       .optional()
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
     
-    salario: z.number()
-      .positive('Salário deve ser positivo')
+    salarioBase: z.number()
+      .nonnegative('O salário não pode ser negativo')
       .optional(),
     
     enderecoId: z.string()
       .uuid('ID de endereço inválido')
       .nullable()
       .optional(),
+  }),
+})
+
+/**
+ * Schema para edição de dados básicos do funcionário
+ */
+export const editarFuncionarioSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID inválido'),
+  }),
+  body: z.object({
+    nome: z.string()
+      .min(3, 'Nome deve ter no mínimo 3 caracteres')
+      .max(100, 'Nome muito longo')
+      .optional(),
+    
+    telefone: z.string()
+      .min(10, 'Telefone inválido')
+      .max(20, 'Telefone muito longo')
+      .optional(),
+    
+    email: z.string()
+      .email('Email inválido')
+      .optional(),
+
+    salarioBase: z.number()
+      .nonnegative('O salário não pode ser negativo')
+      .optional(),
+    
+    // Validação para atualização aninhada do endereço
+    endereco: z.object({
+      rua: z.string().min(3).max(200).optional(),
+      numero: z.string().max(20).optional(),
+      complemento: z.string().max(100).optional(),
+      bairro: z.string().min(3).max(100).optional(),
+      cidade: z.string().min(3).max(100).optional(),
+      estado: z.string().length(2).toUpperCase().optional(),
+      cep: z.string()
+        .regex(/^\d{5}-\d{3}$/, 'CEP inválido (formato: 00000-000)')
+        .optional(),
+    }).optional(),
+
+    dadosBancarios: dadosBancariosSchema.optional(),
   }),
 })
 
@@ -130,9 +202,8 @@ export const listarFuncionariosSchema = z.object({
       'PROFESSOR',
       'COORDENADOR',
       'DIRETOR',
-      'SECRETARIO',
+      'SECRETARIA',
       'AUXILIAR',
-      'ZELADOR',
       'OUTRO'
     ]).optional(),
     

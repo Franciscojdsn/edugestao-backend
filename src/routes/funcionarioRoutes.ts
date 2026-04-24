@@ -6,6 +6,7 @@ import { validate } from '../middlewares/validate'
 import {
   criarFuncionarioSchema,
   atualizarFuncionarioSchema,
+  editarFuncionarioSchema,
   listarFuncionariosSchema,
   idFuncionarioSchema,
 } from '../schemas/funcionarioSchemas'
@@ -59,7 +60,7 @@ router.post(
  */
 router.put(
   '/:id',
-  validate(atualizarFuncionarioSchema),
+  validate(editarFuncionarioSchema),
   funcionarioController.update
 )
 

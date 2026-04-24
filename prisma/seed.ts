@@ -80,9 +80,6 @@ async function main() {
       email: 'joao.prof@escola.com', 
       cpf: '11122233344', 
       salarioBase: 3500,
-      salarioDesconto: 0,
-      salarioAcrescimo: 0,
-      salarioPago: 3500,
     }
   })
 
@@ -94,9 +91,6 @@ async function main() {
       email: 'maria.sec@escola.com', 
       cpf: '55566677788', 
       salarioBase: 2200,
-      salarioDesconto: 0,
-      salarioAcrescimo: 0,
-      salarioPago: 2200,
     }
   })
 
@@ -108,9 +102,6 @@ async function main() {
       email: 'carlos.fin@escola.com', 
       cpf: '99900011122', 
       salarioBase: 2800,
-      salarioDesconto: 0,
-      salarioAcrescimo: 0,
-      salarioPago: 2800,
     }
   })
 
