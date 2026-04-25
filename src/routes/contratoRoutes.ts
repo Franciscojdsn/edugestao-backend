@@ -25,6 +25,8 @@ router.post(
   validate(suspenderContratoSchema),
   contratoController.suspender
 )
+
+router.post('/:id/reativar', checkRole(['ADMIN', 'SECRETARIA']), contratoController.reativarContrato)
 router.patch(
   '/:id/financeiro',
   checkRole(['ADMIN', 'SECRETARIA']),

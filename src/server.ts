@@ -8,10 +8,10 @@ import { authRoutes } from './routes/authRoutes'
 
 // Core modules
 import { escolaRoutes } from './routes/escolaRoutes'
-import { alunoRoutes } from './routes/alunoRoutes'        
-import { turmaRoutes } from './routes/turmaRoutes'         
+import { alunoRoutes } from './routes/alunoRoutes'
+import { turmaRoutes } from './routes/turmaRoutes'
 import { funcionarioRoutes } from './routes/funcionarioRoutes'
-import { disciplinaRoutes } from './routes/disciplinaRoutes' 
+import { disciplinaRoutes } from './routes/disciplinaRoutes'
 import { responsavelRoutes } from './routes/responsavelRoutes'
 import { turmaDisciplinaRoutes } from './routes/turmaDisciplinaRoutes'
 import { enderecoRoutes } from './routes/enderecoRoutes'
@@ -57,7 +57,21 @@ dotenv.config()
 const app = express()
 
 
-app.use(cors())
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, 'http://localhost:3000']
+  : ['http://localhost:3000'];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Bloqueado pelo CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json())
 
 // Logger de Requisições para Debug
@@ -68,7 +82,7 @@ app.use((req, res, next) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  return res.json({ 
+  return res.json({
     status: 'ok',
     timestamp: new Date().toISOString()
   })
@@ -79,12 +93,12 @@ app.use('/auth', authRoutes)
 
 //CORE
 app.use('/escolas', escolaRoutes)
-app.use('/alunos', alunoRoutes)                 
-app.use('/turmas', turmaRoutes)                 
+app.use('/alunos', alunoRoutes)
+app.use('/turmas', turmaRoutes)
 app.use('/funcionarios', funcionarioRoutes)
-app.use('/disciplinas', disciplinaRoutes) 
-app.use(responsavelRoutes)   
-app.use(turmaDisciplinaRoutes) 
+app.use('/disciplinas', disciplinaRoutes)
+app.use(responsavelRoutes)
+app.use(turmaDisciplinaRoutes)
 app.use('/enderecos', enderecoRoutes)
 
 //Pedagógico

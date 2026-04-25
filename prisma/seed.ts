@@ -1,271 +1,208 @@
-import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
-import * as bcrypt from 'bcrypt'
+/// <reference types="node" />
+import { PrismaClient, Turno, StatusContrato, StatusPagamento, TipoResponsavel, TipoTransacao, FormaPagamento } from '@prisma/client';
+import { fakerPT_BR as faker } from '@faker-js/faker';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const adapter = new PrismaPg(pool)
-const prisma = new PrismaClient({ adapter })
+const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Iniciando seed completo para testes de funcionalidades...\n')
+  console.log('Iniciando o Seed de Estresse do EduGestão...');
 
-  // --- LIMPEZA (Ordem importa) ---
-  await prisma.frequencia.deleteMany()
+    await prisma.frequencia.deleteMany()
+
   await prisma.cronogramaProva.deleteMany()
-  await prisma.gradeHoraria.deleteMany()
-  await prisma.evento.deleteMany()
-  await prisma.logAuditoria.deleteMany()
-  await prisma.ocorrencia.deleteMany()
-  await prisma.comunicado.deleteMany()
-  await prisma.nota.deleteMany()
-  await prisma.turmaDisciplina.deleteMany()
-  await prisma.turmaProfessor.deleteMany()
-  await prisma.alunoAtividadeExtra.deleteMany()
-  await prisma.boletos.deleteMany()
-  await prisma.transacao.deleteMany()
-  await prisma.contrato.deleteMany()
-  await prisma.lancamento.deleteMany()
-  await prisma.responsavel.deleteMany()
-  await prisma.aluno.deleteMany()
-  await prisma.atividadeExtra.deleteMany()
-  await prisma.disciplina.deleteMany()
-  await prisma.turma.deleteMany() 
-  await prisma.funcionario.deleteMany()
-  await prisma.usuario.deleteMany()
-  await prisma.endereco.deleteMany()
-  await prisma.escola.deleteMany()
-  console.log('✅ Banco limpo!')
 
-  // 1. ESCOLA
+  await prisma.gradeHoraria.deleteMany()
+
+  await prisma.evento.deleteMany()
+
+  await prisma.logAuditoria.deleteMany()
+
+  await prisma.ocorrencia.deleteMany()
+
+  await prisma.comunicado.deleteMany()
+
+  await prisma.nota.deleteMany()
+
+  await prisma.turmaDisciplina.deleteMany()
+
+  await prisma.turmaProfessor.deleteMany()
+
+  await prisma.alunoAtividadeExtra.deleteMany()
+
+  await prisma.boletos.deleteMany()
+
+  await prisma.transacao.deleteMany()
+
+  await prisma.contrato.deleteMany()
+
+  await prisma.lancamento.deleteMany()
+
+  await prisma.responsavel.deleteMany()
+
+  await prisma.aluno.deleteMany()
+
+  await prisma.atividadeExtra.deleteMany()
+
+  await prisma.disciplina.deleteMany()
+
+  await prisma.turma.deleteMany() 
+
+  await prisma.funcionario.deleteMany()
+
+  await prisma.usuario.deleteMany()
+
+  await prisma.endereco.deleteMany()
+
+  await prisma.escola.deleteMany()
+
+  console.log('✅ Banco limpo!');
+
+  // 1. Criar a Escola Principal (Tenant)
+  const escolaId = faker.string.uuid();
   const escola = await prisma.escola.create({
     data: {
-      nome: 'Colégio Exemplo Digital',
-      cnpj: '12.345.678/0001-90',
-      mensalidadePadrao: 500.00,
+      id: escolaId,
+      nome: 'Colégio EduGestão Excellence',
+      cnpj: faker.string.numeric(14),
+      telefone: faker.phone.number(),
+      email: 'contato@edugestao.com.br',
+      mensalidadePadrao: 1200.00,
       diaVencimento: 10,
     },
-  })
+  });
+  console.log(`✅ Escola criada: ${escola.nome} (ID: ${escola.id})`);
 
-  // 2. ENDEREÇO ÚNICO (Conforme solicitado)
-  const enderecoComum = await prisma.endereco.create({
-    data: {
-      rua: 'Avenida da Educação',
-      numero: '100',
-      bairro: 'Centro',
-      cidade: 'Recife',
-      estado: 'PE',
-      cep: '50000-000',
-    },
-  })
+  // 2. Criar Turmas Base
+  const turmasData = [
+    { nome: '1º Ano A - Ensino Fundamental', turno: Turno.MATUTINO, anoLetivo: 2026 },
+    { nome: '2º Ano A - Ensino Fundamental', turno: Turno.MATUTINO, anoLetivo: 2026 },
+    { nome: '3º Ano B - Ensino Fundamental', turno: Turno.VESPERTINO, anoLetivo: 2026 },
+  ];
 
-  // 3. USUÁRIOS
-  const senhaHash = await bcrypt.hash('admin123', 10)
-  await prisma.usuario.create({
-    data: {
-      email: 'admin@escola.com',
-      senha: senhaHash,
-      nome: 'Diretor Geral',
-      role: 'ADMIN',
-      escolaId: escola.id,
-    },
-  })
+  const turmas = await Promise.all(
+    turmasData.map(t => 
+      prisma.turma.create({
+        data: { ...t, escolaId: escola.id }
+      })
+    )
+  );
+  console.log(`✅ ${turmas.length} Turmas criadas.`);
 
-  // 4. FUNCIONÁRIOS (3 funcionários, sendo 1 professor)
-  const professor = await prisma.funcionario.create({
-    data: { 
-      nome: 'João Professor', 
-      cargo: 'PROFESSOR', 
-      escolaId: escola.id, 
-      email: 'joao.prof@escola.com', 
-      cpf: '11122233344', 
-      salarioBase: 3500,
-    }
-  })
+  // 3. Criar Disciplinas Base
+  const disciplinasNomes = ['Matemática', 'Português', 'História', 'Geografia', 'Ciências'];
+  await Promise.all(
+    disciplinasNomes.map(nome =>
+      prisma.disciplina.create({
+        data: { nome, escolaId: escola.id, cargaHoraria: 4 }
+      })
+    )
+  );
+  console.log(`✅ ${disciplinasNomes.length} Disciplinas criadas.`);
 
-  await prisma.funcionario.create({
-    data: { 
-      nome: 'Maria Secretaria', 
-      cargo: 'SECRETARIA', 
-      escolaId: escola.id, 
-      email: 'maria.sec@escola.com', 
-      cpf: '55566677788', 
-      salarioBase: 2200,
-    }
-  })
+  console.log('⏳ Gerando 200 alunos com dados financeiros... Isso pode levar alguns segundos.');
 
-  await prisma.funcionario.create({
-    data: { 
-      nome: 'Carlos Financeiro', 
-      cargo: 'DIRETOR', 
-      escolaId: escola.id, 
-      email: 'carlos.fin@escola.com', 
-      cpf: '99900011122', 
-      salarioBase: 2800,
-    }
-  })
-
-  // 5. TURMAS (2 turmas)
-  const turmaA = await prisma.turma.create({
-    data: {
-      nome: '1º Ano A',
-      turno: 'MATUTINO',
-      anoLetivo: 2026,
-      escolaId: escola.id,
-    },
-  })
-  const turmaB = await prisma.turma.create({
-    data: {
-      nome: '2º Ano B',
-      turno: 'VESPERTINO',
-      anoLetivo: 2026,
-      escolaId: escola.id,
-    },
-  })
-
-  // 6. DISCIPLINAS E VÍNCULOS
-  const disciplinaMat = await prisma.disciplina.create({ data: { nome: 'Matemática', cargaHoraria: 4, escolaId: escola.id } })
+  // 4. Gerar 200 Alunos com Responsáveis, Contratos e Boletos
+  const totalAlunos = 200;
   
-  // Vincula o único professor às duas turmas
-  await prisma.turmaDisciplina.createMany({
-    data: [
-      {
-        turmaId: turmaA.id,
-        disciplinaId: disciplinaMat.id,
-        professorId: professor.id,
-      },
-      {
-        turmaId: turmaB.id,
-        disciplinaId: disciplinaMat.id,
-        professorId: professor.id,
-      },
-    ],
-  })
+  // Utilizando loop for...of para evitar pool exhaustion no Neon com 200 transações simultâneas
+  for (let i = 0; i < totalAlunos; i++) {
+    const turmaSelecionada = faker.helpers.arrayElement(turmas);
+    const isPago = faker.datatype.boolean(); // 50% chance de estar PAGO ou PENDENTE
+    const valorMensalidade = 1200.00;
 
-  // 7. ATIVIDADES EXTRAS (2 atividades)
-  const futsal = await prisma.atividadeExtra.create({
-    data: { nome: 'Futsal', valor: 80.00, escolaId: escola.id }
-  })
-  const ballet = await prisma.atividadeExtra.create({
-    data: { nome: 'Ballet', valor: 100.00, escolaId: escola.id }
-  })
+    await prisma.$transaction(async (tx) => {
+      // 4.1 Criar Aluno
+      const aluno = await tx.aluno.create({
+        data: {
+          nome: faker.person.fullName(),
+          cpf: faker.string.numeric(11),
+          dataNascimento: faker.date.birthdate({ min: 6, max: 18, mode: 'age' }),
+          numeroMatricula: `MAT-${2026}-${faker.string.numeric(5)}`,
+          turno: turmaSelecionada.turno,
+          escolaId: escola.id,
+          turmaId: turmaSelecionada.id,
+        }
+      });
 
-  // 8. ALUNOS, RESPONSÁVEIS, NOTAS E FREQUÊNCIA
-  const criarAlunoFluxoCompleto = async (
-    nome: string,
-    turmaId: string,
-    statusFinanceiro: 'PAGO' | 'ATRASADO'
-  ) => {
-    const aluno = await prisma.aluno.create({
-      data: {
-        nome,
-        numeroMatricula: `MAT-${Math.floor(Math.random() * 9000)}`,
-        escolaId: escola.id,
-        turmaId: turmaId,
-        enderecoId: enderecoComum.id,
+      // 4.2 Criar Responsável Financeiro
+      const responsavel = await tx.responsavel.create({
+        data: {
+          nome: faker.person.fullName(),
+          cpf: faker.string.numeric(11),
+          telefone1: faker.phone.number(),
+          email: faker.internet.email(),
+          tipo: faker.helpers.arrayElement([TipoResponsavel.PAI, TipoResponsavel.MAE, TipoResponsavel.TUTOR]),
+          isResponsavelFinanceiro: true,
+          alunoId: aluno.id,
+          escolaId: escola.id,
+        }
+      });
+
+      // 4.3 Criar Contrato
+      const contrato = await tx.contrato.create({
+        data: {
+          valorMatricula: 300.00,
+          valorMensalidadeBase: valorMensalidade,
+          diaVencimento: 10,
+          quantidadeParcelas: 12,
+          status: StatusContrato.ATIVO,
+          alunoId: aluno.id,
+          responsavelFinanceiroId: responsavel.id,
+          escolaId: escola.id,
+        }
+      });
+
+      // 4.4 Criar Transação (se pago) e Boleto
+      let transacaoId = null;
+
+      if (isPago) {
+        const transacao = await tx.transacao.create({
+          data: {
+            tipo: TipoTransacao.ENTRADA,
+            motivo: `Mensalidade - ${faker.date.month()} - ${aluno.nome}`,
+            valor: valorMensalidade,
+            formaPagamento: FormaPagamento.PIX,
+            escolaId: escola.id,
+            responsavelId: responsavel.id,
+            contratoId: contrato.id,
+          }
+        });
+        transacaoId = transacao.id;
       }
-    })
 
-    const resp = await prisma.responsavel.create({
-      data: {
-        nome: `Responsável de ${nome}`,
-        tipo: 'PAI',
-        cpf: `000.000.000-${Math.floor(Math.random() * 99)}`,
-        telefone1: '81988887777',
-        email: `resp.${nome.toLowerCase().replace(' ', '')}@teste.com`,
-        alunoId: aluno.id,
-        escolaId: escola.id,
-        isResponsavelFinanceiro: true,
-        enderecoId: enderecoComum.id,
-      }
-    })
+      await tx.boletos.create({
+        data: {
+          referencia: `Mensalidade 01/12`,
+          mesReferencia: faker.number.int({ min: 1, max: 12 }),
+          anoReferencia: 2026,
+          valorBase: valorMensalidade,
+          valorTotal: valorMensalidade,
+          valorPago: isPago ? valorMensalidade : null,
+          dataVencimento: faker.date.soon({ days: 30 }),
+          dataPagamento: isPago ? new Date() : null,
+          status: isPago ? StatusPagamento.PAGO : StatusPagamento.PENDENTE,
+          formaPagamento: isPago ? FormaPagamento.PIX : null,
+          alunoId: aluno.id,
+          escolaId: escola.id,
+          transacaoId: transacaoId,
+        }
+      });
+    });
 
-    await prisma.contrato.create({
-      data: {
-        alunoId: aluno.id,
-        responsavelFinanceiroId: resp.id,
-        escolaId: escola.id,
-        valorMensalidadeBase: 500.00,
-        diaVencimento: 10,
-        dataInicio: new Date('2026-01-01'),
-        status: 'ATIVO', 
-        ativo: true,
-      }
-    })
-
-    // Cria um boleto para simular o status
-    await prisma.boletos.create({
-      data: {
-        referencia: statusFinanceiro === 'ATRASADO' ? 'Fevereiro/2026' : 'Maio/2026',
-        mesReferencia: statusFinanceiro === 'ATRASADO' ? 2 : 5,
-        anoReferencia: 2026,
-        valorBase: 500.00,
-        valorAtividades: 0,
-        valorTotal: 500.00,
-        dataVencimento: statusFinanceiro === 'ATRASADO' ? new Date('2026-02-10') : new Date('2026-05-10'),
-        status: statusFinanceiro === 'ATRASADO' ? 'PENDENTE' : 'PAGO',
-        alunoId: aluno.id,
-        escolaId: escola.id,
-      },
-    })
-
-    // Acadêmico: 1 Nota e 1 Frequência para cada aluno
-    await prisma.nota.create({
-      data: {
-        bimestre: 1,
-        anoLetivo: 2026,
-        valor: statusFinanceiro === 'PAGO' ? 9.5 : 6.0,
-        alunoId: aluno.id,
-        turmaId: turmaId,
-        disciplinaId: disciplinaMat.id,
-      },
-    })
-
-    await prisma.frequencia.create({
-      data: {
-        data: new Date(),
-        presente: true,
-        alunoId: aluno.id,
-        turmaId: turmaId,
-        disciplinaId: disciplinaMat.id,
-        escolaId: escola.id,
-      },
-    })
-
-    return aluno
+    // Feedback visual a cada 50 alunos
+    if ((i + 1) % 50 === 0) {
+      console.log(`   ... ${i + 1} alunos gerados.`);
+    }
   }
 
-  const aluno1 = await criarAlunoFluxoCompleto('Arthur Adimplente', turmaA.id, 'PAGO')
-  const aluno2 = await criarAlunoFluxoCompleto('Beatriz Devedora', turmaA.id, 'ATRASADO')
-  const aluno3 = await criarAlunoFluxoCompleto('Caio Devedor', turmaB.id, 'ATRASADO')
-
-  // 9. LANÇAMENTOS (Transações avulsas)
-  await prisma.transacao.create({
-    data: {
-      motivo: 'Venda de Uniforme - Arthur',
-      valor: 150.00,
-      tipo: 'ENTRADA',
-      escolaId: escola.id,
-    }
-  })
-
-  await prisma.lancamento.create({
-    data: {
-      descricao: 'Compra de Material de Limpeza',
-      valor: 200.00,
-      tipo: 'SAIDA',
-      categoria: 'INFRAESTRUTURA',
-      dataVencimento: new Date(),
-      status: 'PAGO',
-      escolaId: escola.id
-    }
-  })
-
-  console.log('\n🚀 SEED REESTRUTURADO COM SUCESSO!')
-  console.log(`- 3 Alunos criados (Arthur=Adimplente, Beatriz e Caio=Inadimplentes)`)
-  console.log(`- Funcionários: 1 Professor (João), 1 Secretaria (Maria), 1 Administrativo (Carlos)`)
-  console.log(`- Financeiro: Lançamentos de Receita e Despesa criados para o Dashboard.`)
-  console.log(`- Endereço único compartilhado para facilitar testes de localização.`)
+  console.log('🚀 Seed concluído com sucesso! Ambiente de homologação pronto.');
 }
 
-main().catch(e => console.error(e)).finally(() => prisma.$disconnect())
+main()
+  .catch((e) => {
+    console.error('❌ Erro durante o Seed:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
