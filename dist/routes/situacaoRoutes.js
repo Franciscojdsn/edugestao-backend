@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.situacaoRoutes = void 0;
+const express_1 = require("express");
+const situacaoController_1 = require("../controllers/situacaoController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const situacaoSchemas_1 = require("../schemas/situacaoSchemas");
+const router = (0, express_1.Router)();
+exports.situacaoRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.get('/', (0, validate_1.validate)(situacaoSchemas_1.listarPagamentosSchema), situacaoController_1.situacaoController.list);
+router.get('/inadimplentes', situacaoController_1.situacaoController.getInadimplentes);
+router.get('/:id', situacaoController_1.situacaoController.show);
+router.post('/', (0, validate_1.validate)(situacaoSchemas_1.criarPagamentoSchema), situacaoController_1.situacaoController.create);
+router.put('/:id', (0, validate_1.validate)(situacaoSchemas_1.atualizarPagamentoSchema), situacaoController_1.situacaoController.update);
+router.post('/:id/registrar', (0, validate_1.validate)(situacaoSchemas_1.registrarPagamentoSchema), situacaoController_1.situacaoController.registrarPagamento);
+router.post('/:id/cancelar', situacaoController_1.situacaoController.cancelar);
+router.patch('/:id/estornar', situacaoController_1.situacaoController.estornarPagamento);
+//# sourceMappingURL=situacaoRoutes.js.map

@@ -1,0 +1,21 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.eventoRoutes = void 0;
+const express_1 = require("express");
+const eventoController_1 = require("../controllers/eventoController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const eventoSchemas_1 = require("../schemas/eventoSchemas");
+const router = (0, express_1.Router)();
+exports.eventoRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.post('/', (0, validate_1.validate)(eventoSchemas_1.criarEventoSchema), eventoController_1.eventoController.create);
+router.get('/', (0, validate_1.validate)(eventoSchemas_1.listarEventosSchema), eventoController_1.eventoController.list);
+router.get('/proximos', eventoController_1.eventoController.proximosEventos);
+router.get('/calendario/:ano/:mes', eventoController_1.eventoController.calendarioMes);
+router.get('/:id', eventoController_1.eventoController.show);
+router.put('/:id', (0, validate_1.validate)(eventoSchemas_1.atualizarEventoSchema), eventoController_1.eventoController.update);
+router.delete('/:id', eventoController_1.eventoController.delete);
+//# sourceMappingURL=eventoRoutes.js.map

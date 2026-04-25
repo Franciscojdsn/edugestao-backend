@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.enderecoRoutes = void 0;
+const express_1 = require("express");
+const enderecoController_1 = require("../controllers/enderecoController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const enderecoSchemas_1 = require("../schemas/enderecoSchemas");
+const router = (0, express_1.Router)();
+exports.enderecoRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.get('/', enderecoController_1.enderecoController.list);
+router.get('/cep/:cep', enderecoController_1.enderecoController.buscarPorCep);
+router.get('/:id', enderecoController_1.enderecoController.show);
+router.post('/', (0, validate_1.validate)(enderecoSchemas_1.criarEnderecoSchema), enderecoController_1.enderecoController.create);
+router.put('/:id', (0, validate_1.validate)(enderecoSchemas_1.atualizarEnderecoSchema), enderecoController_1.enderecoController.update);
+router.delete('/:id', enderecoController_1.enderecoController.delete);
+//# sourceMappingURL=enderecoRoutes.js.map

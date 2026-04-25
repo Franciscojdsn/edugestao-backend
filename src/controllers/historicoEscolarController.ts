@@ -152,7 +152,7 @@ export const historicoEscolarController = {
       const contrato = await prisma.contrato.findFirst({
         where: { alunoId: idFormatado },
         select: {
-          valorMensalidade: true,
+          valorMensalidadeBase: true,
           diaVencimento: true,
           ativo: true,
           dataInicio: true,
@@ -160,7 +160,7 @@ export const historicoEscolarController = {
         },
       })
 
-      const pagamentos = await prisma.pagamento.findMany({
+      const pagamentos = await prisma.boletos.findMany({
         where: { alunoId: idFormatado },
         select: {
           referencia: true,

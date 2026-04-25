@@ -1,0 +1,280 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.situacaoController = void 0;
+const prisma_1 = require("../config/prisma");
+const errorHandler_1 = require("../middlewares/errorHandler");
+exports.situacaoController = {
+    // GET - listar boletos com paginação e filtros
+    async list(req, res) {
+        const { page = 1, limit = 10, alunoId, status } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+        let where = {
+            escolaId: req.user?.escolaId,
+            deletedAt: null,
+        };
+        if (alunoId)
+            where.alunoId = alunoId;
+        if (status)
+            where.status = status;
+        const [boletos, total] = await Promise.all([
+            prisma_1.prisma.boletos.findMany({
+                where,
+                skip,
+                take: Number(limit),
+                include: {
+                    aluno: {
+                        select: {
+                            id: true,
+                            nome: true,
+                            numeroMatricula: true,
+                            turma: { select: { nome: true } }
+                        },
+                    },
+                },
+                orderBy: { dataVencimento: 'desc' },
+            }),
+            prisma_1.prisma.boletos.count({ where }),
+        ]);
+        return res.json({
+            data: boletos,
+            meta: {
+                total,
+                page: Number(page),
+                limit: Number(limit),
+                totalPages: Math.ceil(total / Number(limit))
+            },
+        });
+    },
+    // GET /pagamentos/:id - Obter detalhes de um pagamento específico
+    async show(req, res) {
+        const id = req.params.id;
+        const escolaId = req.user?.escolaId;
+        const pagamento = await prisma_1.prisma.boletos.findFirst({
+            where: {
+                id: id,
+                aluno: { escolaId } // Garante que o pagamento é da escola do usuário
+            },
+            include: {
+                aluno: {
+                    include: {
+                        turma: { select: { nome: true } },
+                        responsaveis: true
+                    }
+                },
+                transacao: true
+            }
+        });
+        if (!pagamento) {
+            throw new errorHandler_1.AppError('Pagamento não encontrado', 404);
+        }
+        return res.json(pagamento);
+    },
+    //POST /pagamentos - Criar um novo pagamento
+    async create(req, res) {
+        const dados = req.body;
+        const escolaId = req.user?.escolaId;
+        const aluno = await prisma_1.prisma.aluno.findFirst({
+            where: { id: dados.alunoId, escolaId }
+        });
+        if (!aluno) {
+            throw new errorHandler_1.AppError('Aluno não encontrado ou não pertence a esta escola', 404);
+        }
+        const pagamento = await prisma_1.prisma.transacao.create({
+            data: {
+                ...dados,
+                // Caso seu schema use valorTotal e o banco peça valorBase, ajuste aqui:
+                valorBase: dados.valorTotal,
+                valorTotal: dados.valorTotal,
+            }
+        });
+        return res.status(201).json(pagamento);
+    },
+    // PUT /pagamentos/:id - Atualizar um pagamento existente
+    async update(req, res) {
+        const id = req.params.id;
+        const dados = req.body;
+        const escolaId = req.user?.escolaId;
+        const pagamentoExistente = await prisma_1.prisma.boletos.findFirst({
+            where: { id: id, aluno: { escolaId } }
+        });
+        if (!pagamentoExistente) {
+            throw new errorHandler_1.AppError('Pagamento não encontrado ou acesso negado', 404);
+        }
+        const pagamento = await prisma_1.prisma.transacao.update({
+            where: { id: id },
+            data: {
+                ...dados,
+            },
+        });
+        return res.json(pagamento);
+    },
+    /**
+     * POST /pagamentos/:id/registrar
+     * Consolidação da Liquidação Manual com Auditoria e Fluxo de Caixa
+     */
+    async registrarPagamento(req, res) {
+        console.log(`[SituacaoController] registrarPagamento disparado para o ID: ${req.params.id}`);
+        console.log(`[SituacaoController] Body:`, req.body);
+        const { id } = req.params;
+        const idFormatado = Array.isArray(id) ? id[0] : id;
+        const { formaPagamento, observacoes } = req.body;
+        const escolaId = req.user?.escolaId;
+        const usuarioId = req.user?.id;
+        if (!escolaId)
+            throw new errorHandler_1.AppError('Tenant não identificado', 403);
+        const boleto = await prisma_1.prisma.boletos.findFirst({
+            where: { id: idFormatado, escolaId },
+            include: { aluno: { select: { nome: true } } }
+        });
+        if (!boleto)
+            throw new errorHandler_1.AppError('Boleto não encontrado', 404);
+        if (boleto.status === 'PAGO')
+            throw new errorHandler_1.AppError('Boleto já foi liquidado', 400);
+        const resultado = await prisma_1.prisma.$transaction(async (tx) => {
+            // 1. Criar Movimentação Financeira (Caixa)
+            const transacao = await tx.transacao.create({
+                data: {
+                    tipo: 'ENTRADA',
+                    valor: boleto.valorTotal,
+                    motivo: 'MENSALIDADE',
+                    observacao: `Baixa Manual Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+                    data: new Date(),
+                    formaPagamento: formaPagamento || 'DINHEIRO',
+                    escolaId: escolaId
+                }
+            });
+            // 2. Atualizar o Boleto
+            const boletoAtualizado = await tx.boletos.update({
+                where: { id: idFormatado },
+                data: {
+                    status: 'PAGO',
+                    dataPagamento: new Date(),
+                    valorPago: boleto.valorTotal,
+                    formaPagamento: formaPagamento || 'DINHEIRO',
+                    observacoes,
+                    transacaoId: transacao.id
+                }
+            });
+            // 3. Gerar Log de Auditoria Detalhado
+            await tx.logAuditoria.create({
+                data: {
+                    entidade: 'BOLETO',
+                    entidadeId: idFormatado,
+                    acao: 'LIQUIDACAO_MANUAL',
+                    dadosAntigos: JSON.parse(JSON.stringify(boleto)),
+                    dadosNovos: JSON.parse(JSON.stringify(boletoAtualizado)),
+                    usuarioId,
+                    escolaId,
+                    ip: req.ip || ''
+                }
+            });
+            return boletoAtualizado;
+        });
+        return res.json({ message: 'Pagamento registrado com sucesso', data: resultado });
+    },
+    // POST /pagamentos/:id/cancelar - Cancelar um pagamento - soft delete
+    async cancelar(req, res) {
+        const id = req.params.id;
+        const escolaId = req.user?.escolaId;
+        const pagamento = await prisma_1.prisma.boletos.findFirst({
+            where: {
+                id,
+                aluno: { escolaId, deletedAt: null },
+            },
+        });
+        if (!pagamento)
+            throw new errorHandler_1.AppError('Pagamento não encontrado', 404);
+        if (pagamento.status === 'PAGO')
+            throw new errorHandler_1.AppError('Não é possível cancelar pagamento já registrado', 400);
+        await prisma_1.prisma.boletos.update({
+            where: { id },
+            data: { status: 'CANCELADO' },
+        });
+        return res.json({ message: 'Pagamento cancelado' });
+    },
+    // GET /pagamentos/inadimplentes - Listar alunos inadimplentes
+    async getInadimplentes(req, res) {
+        const escolaId = req.user?.escolaId;
+        const hoje = new Date();
+        const agregacaoInadimplentes = await prisma_1.prisma.boletos.groupBy({
+            by: ['alunoId'],
+            where: {
+                status: 'PENDENTE',
+                dataVencimento: { lt: hoje },
+            },
+            _sum: { valorTotal: true },
+            _count: { id: true }
+        });
+        if (agregacaoInadimplentes.length === 0) {
+            return res.json({ totalGeralDevido: 0, quantidadeAlunos: 0, inadimplentes: [] });
+        }
+        // Alunos inadimplentes detalhados
+        const alunosIds = agregacaoInadimplentes.map(item => item.alunoId);
+        const detalhesAlunos = await prisma_1.prisma.aluno.findMany({
+            where: { id: { in: alunosIds } },
+            select: {
+                id: true,
+                nome: true,
+                numeroMatricula: true,
+                turma: { select: { nome: true } },
+                responsaveis: {
+                    where: { isResponsavelFinanceiro: true },
+                    select: { nome: true, telefone1: true, email: true }
+                }
+            }
+        });
+        // 3. Montar o retorno final cruzando os dados
+        const resultado = agregacaoInadimplentes.map(item => {
+            const aluno = detalhesAlunos.find(a => a.id === item.alunoId);
+            return {
+                aluno: {
+                    id: aluno?.id,
+                    nome: aluno?.nome,
+                    matricula: aluno?.numeroMatricula,
+                    turma: aluno?.turma?.nome
+                },
+                responsavel: aluno?.responsaveis[0] || null,
+                totalDevido: item._sum.valorTotal,
+                quantidadeBoletos: item._count.id
+            };
+        });
+        return res.json(resultado);
+    },
+    async estornarPagamento(req, res) {
+        const id = req.params.id;
+        const escolaId = req.user?.escolaId;
+        const boleto = await prisma_1.prisma.boletos.findUnique({
+            where: { id },
+            include: { aluno: true }
+        });
+        if (!boleto)
+            throw new errorHandler_1.AppError('Boleto não encontrado', 404);
+        if (boleto.status !== 'PAGO')
+            throw new errorHandler_1.AppError('Apenas boletos pagos podem ser estornados', 400);
+        const resultado = await prisma_1.prisma.$transaction(async (tx) => {
+            // 1. Criar Transação de SAÍDA (Anulação do saldo no caixa)
+            await tx.transacao.create({
+                data: {
+                    tipo: 'SAIDA',
+                    valor: boleto.valorTotal,
+                    motivo: `ESTORNO: Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+                    observacao: `Estorno realizado via sistema.`,
+                    escolaId: escolaId,
+                    data: new Date(),
+                }
+            });
+            // 2. Voltar o boleto para PENDENTE
+            return await tx.boletos.update({
+                where: { id },
+                data: {
+                    status: 'PENDENTE',
+                    dataPagamento: null,
+                    valorPago: null,
+                    transacaoId: null, // Desvincula para permitir novo pagamento
+                }
+            });
+        });
+        return res.json({ message: 'Pagamento estornado com sucesso', data: resultado });
+    },
+};
+//# sourceMappingURL=situacaoController.js.map

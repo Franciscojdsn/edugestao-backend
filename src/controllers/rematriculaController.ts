@@ -15,7 +15,7 @@ export const rematriculaController = {
       },
       include: {
         turma: { select: { id: true, nome: true } },
-        contrato: { select: { valorMensalidade: true } },
+        contrato: { select: { valorMensalidadeBase: true } },
       },
     })
 
@@ -36,8 +36,8 @@ export const rematriculaController = {
         anoAnterior,
         anoNovo,
         turmaAnteriorId: a.turma!.id,
-        valorAnterior: a.contrato?.valorMensalidade || 0,
-        valorNovo: a.contrato?.valorMensalidade || 0,
+        valorAnterior: a.contrato?.valorMensalidadeBase || 0,
+        valorNovo: a.contrato?.valorMensalidadeBase || 0,
         escolaId: escolaId!,
         status: 'PENDENTE' as const,
       }))

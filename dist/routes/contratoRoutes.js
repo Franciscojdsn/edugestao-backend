@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.contratoRoutes = void 0;
+const express_1 = require("express");
+const contratoController_1 = require("../controllers/contratoController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const contratoSchemas_1 = require("../schemas/contratoSchemas");
+const router = (0, express_1.Router)();
+exports.contratoRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.get('/', (0, validate_1.validate)(contratoSchemas_1.listarContratosSchema), contratoController_1.contratoController.list);
+router.get('/:id', contratoController_1.contratoController.show);
+router.post('/', (0, validate_1.validate)(contratoSchemas_1.criarContratoSchema), contratoController_1.contratoController.create);
+router.put('/:id', (0, validate_1.validate)(contratoSchemas_1.atualizarContratoSchema), contratoController_1.contratoController.update);
+router.post('/:id/cancelar', contratoController_1.contratoController.cancelar);
+router.post('/:id/suspender', (0, auth_1.checkRole)(['ADMIN', 'SECRETARIA']), (0, validate_1.validate)(contratoSchemas_1.suspenderContratoSchema), contratoController_1.contratoController.suspender);
+router.post('/:id/reativar', (0, auth_1.checkRole)(['ADMIN', 'SECRETARIA']), contratoController_1.contratoController.reativarContrato);
+router.patch('/:id/financeiro', (0, auth_1.checkRole)(['ADMIN', 'SECRETARIA']), contratoController_1.contratoController.updateFinanceiro);
+//# sourceMappingURL=contratoRoutes.js.map

@@ -1,0 +1,169 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.lancamentoController = void 0;
+const prisma_1 = require("../config/prisma");
+exports.lancamentoController = {
+    // Criar novo lançamento (Entrada ou Saída Avulsa)
+    async create(req, res) {
+        const { descricao, tipo, categoria, valor, dataVencimento, alunoId, funcionarioId } = req.body;
+        const escolaId = req.user?.escolaId;
+        if (!escolaId) {
+            return res.status(401).json({ error: 'Escola não identificada no token.' });
+        }
+        const lancamento = await prisma_1.prisma.lancamento.create({
+            data: {
+                descricao,
+                tipo, // 'ENTRADA' ou 'SAIDA'
+                categoria,
+                valor,
+                dataVencimento: new Date(dataVencimento),
+                escolaId,
+                alunoId: alunoId || null,
+                funcionarioId: funcionarioId || null,
+                status: 'PENDENTE'
+            }
+        });
+        return res.status(201).json(lancamento);
+    },
+    // Listar lançamentos com filtros
+    async list(req, res) {
+        const { tipo, status, mes, ano } = req.query;
+        const escolaId = req.user?.escolaId;
+        let where = { escolaId, deletedAt: null };
+        if (tipo)
+            where.tipo = tipo;
+        if (status)
+            where.status = status;
+        if (mes && ano) {
+            const inicioMes = new Date(Number(ano), Number(mes) - 1, 1);
+            const fimMes = new Date(Number(ano), Number(mes), 0);
+            where.dataVencimento = { gte: inicioMes, lte: fimMes };
+        }
+        const lancamentos = await prisma_1.prisma.lancamento.findMany({
+            where,
+            include: {
+                aluno: { select: { nome: true } },
+                funcionario: { select: { nome: true } }
+            },
+            orderBy: { dataVencimento: 'asc' }
+        });
+        return res.json(lancamentos);
+    },
+    // Liquidar um lançamento (Marcar como PAGO/RECEBIDO e gerar Transação Real)
+    async liquidar(req, res) {
+        const id = req.params.id;
+        const { dataPagamento, formaPagamento } = req.body;
+        const lancamento = await prisma_1.prisma.lancamento.findUnique({
+            where: { id }
+        });
+        if (!lancamento)
+            return res.status(404).json({ error: 'Lançamento não encontrado' });
+        // Usamos uma transação do Prisma para garantir que ou faz tudo ou nada
+        const resultado = await prisma_1.prisma.$transaction(async (tx) => {
+            // 1. Atualiza o lançamento
+            const atualizado = await tx.lancamento.update({
+                where: { id },
+                data: {
+                    status: 'PAGO',
+                    dataLiquidacao: new Date(dataPagamento || new Date())
+                }
+            });
+            // 2. Cria a Transação Real (que aparece no extrato/auditoria)
+            await tx.transacao.create({
+                data: {
+                    escolaId: lancamento.escolaId,
+                    tipo: lancamento.tipo,
+                    valor: lancamento.valor,
+                    motivo: lancamento.descricao,
+                    data: new Date(dataPagamento || new Date()),
+                    formaPagamento: formaPagamento || 'DINHEIRO'
+                }
+            });
+            return atualizado;
+        });
+        return res.json(resultado);
+    },
+    // Soft delete de lançamento
+    async delete(req, res) {
+        const id = req.params.id;
+        const escolaId = req.user?.escolaId;
+        if (!escolaId) {
+            return res.status(401).json({ error: 'Escola não identificada no token.' });
+        }
+        // Busca o lançamento garantindo o tenant e que não foi excluído
+        const lancamento = await prisma_1.prisma.lancamento.findFirst({
+            where: { id, escolaId, deletedAt: null }
+        });
+        if (!lancamento) {
+            return res.status(404).json({ error: 'Lançamento não encontrado ou acesso negado.' });
+        }
+        // Regra de Negócio: Lançamentos pagos não podem ser excluídos diretamente
+        if (lancamento.status === 'PAGO') {
+            return res.status(400).json({ error: 'Lançamentos já liquidados não podem ser excluídos. Realize um estorno.' });
+        }
+        await prisma_1.prisma.lancamento.update({
+            where: { id },
+            data: { deletedAt: new Date() }
+        });
+        return res.status(204).send();
+    },
+    // Estornar um lançamento pago
+    async estornar(req, res) {
+        const id = req.params.id;
+        const { motivo } = req.body;
+        const escolaId = req.user?.escolaId;
+        const usuarioId = req.user?.userId;
+        if (!escolaId) {
+            return res.status(401).json({ error: 'Escola não identificada no token.' });
+        }
+        const lancamento = await prisma_1.prisma.lancamento.findFirst({
+            where: { id, escolaId, deletedAt: null }
+        });
+        if (!lancamento) {
+            return res.status(404).json({ error: 'Lançamento não encontrado.' });
+        }
+        if (lancamento.status !== 'PAGO') {
+            return res.status(400).json({ error: 'Apenas lançamentos pagos podem ser estornados.' });
+        }
+        // Lógica de status pós-estorno baseada no vencimento
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        const dataVencimento = new Date(lancamento.dataVencimento);
+        dataVencimento.setHours(0, 0, 0, 0);
+        const novoStatus = dataVencimento < hoje ? 'VENCIDO' : 'PENDENTE';
+        const resultado = await prisma_1.prisma.$transaction(async (tx) => {
+            // 1. Atualizar o Lançamento original
+            const atualizado = await tx.lancamento.update({
+                where: { id },
+                data: {
+                    status: novoStatus,
+                    dataLiquidacao: null
+                }
+            });
+            // 2. Criar Transação Compensatória (Inversa)
+            await tx.transacao.create({
+                data: {
+                    escolaId: lancamento.escolaId,
+                    tipo: lancamento.tipo === 'ENTRADA' ? 'SAIDA' : 'ENTRADA',
+                    valor: lancamento.valor,
+                    motivo: `ESTORNO: ${lancamento.descricao}`,
+                    data: new Date(),
+                    formaPagamento: 'TRANSFERENCIA'
+                }
+            });
+            // 3. Log de Auditoria
+            await tx.logAuditoria.create({
+                data: {
+                    escolaId,
+                    usuarioId: usuarioId,
+                    acao: 'ESTORNO_LANCAMENTO',
+                    entidade: 'LANCAMENTO',
+                    entidadeId: id,
+                }
+            });
+            return atualizado;
+        });
+        return res.json(resultado);
+    }
+};
+//# sourceMappingURL=lancamentoController.js.map

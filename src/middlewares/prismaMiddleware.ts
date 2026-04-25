@@ -24,10 +24,7 @@ const TABELAS_COM_SOFT_DELETE = [
  * @param escolaId - ID da escola do usuário autenticado
  */
 export function createPrismaMiddleware(escolaId?: string) {
-  return async (
-    params: Prisma.MiddlewareParams,
-    next: (params: Prisma.MiddlewareParams) => Promise<any>
-  ) => {
+  return async (params: any, next: (params: any) => Promise<any>) => {
     const { model, action } = params
 
     if (!model) return next(params)

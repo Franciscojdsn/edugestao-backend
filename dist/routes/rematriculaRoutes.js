@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.rematriculaRoutes = void 0;
+const express_1 = require("express");
+const rematriculaController_1 = require("../controllers/rematriculaController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const rematriculaSchemas_1 = require("../schemas/rematriculaSchemas");
+const router = (0, express_1.Router)();
+exports.rematriculaRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.post('/gerar-massa', (0, validate_1.validate)(rematriculaSchemas_1.gerarRematriculasMassaSchema), rematriculaController_1.rematriculaController.gerarMassa);
+router.post('/:id/confirmar', (0, validate_1.validate)(rematriculaSchemas_1.confirmarRematriculaSchema), rematriculaController_1.rematriculaController.confirmar);
+router.post('/:id/recusar', (0, validate_1.validate)(rematriculaSchemas_1.recusarRematriculaSchema), rematriculaController_1.rematriculaController.recusar);
+router.get('/', (0, validate_1.validate)(rematriculaSchemas_1.listarRematriculasSchema), rematriculaController_1.rematriculaController.list);
+router.get('/estatisticas', rematriculaController_1.rematriculaController.estatisticas);
+router.get('/:id', rematriculaController_1.rematriculaController.show);
+//# sourceMappingURL=rematriculaRoutes.js.map

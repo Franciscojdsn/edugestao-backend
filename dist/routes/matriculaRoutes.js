@@ -1,0 +1,21 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.matriculaRoutes = void 0;
+const express_1 = require("express");
+const matriculaController_1 = require("../controllers/matriculaController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const matriculaSchemas_1 = require("../schemas/matriculaSchemas");
+const router = (0, express_1.Router)();
+exports.matriculaRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.post('/iniciar', (0, validate_1.validate)(matriculaSchemas_1.iniciarMatriculaSchema), matriculaController_1.matriculaController.iniciar);
+router.post('/:matriculaId/responsaveis', (0, validate_1.validate)(matriculaSchemas_1.adicionarResponsavelSchema), matriculaController_1.matriculaController.adicionarResponsavel);
+router.post('/:matriculaId/finalizar', (0, validate_1.validate)(matriculaSchemas_1.finalizarMatriculaSchema), matriculaController_1.matriculaController.finalizar);
+router.get('/', (0, validate_1.validate)(matriculaSchemas_1.listarMatriculasSchema), matriculaController_1.matriculaController.list);
+router.get('/:id', matriculaController_1.matriculaController.show);
+router.put('/:id/status', matriculaController_1.matriculaController.atualizarStatus);
+router.delete('/:id', matriculaController_1.matriculaController.cancelar);
+//# sourceMappingURL=matriculaRoutes.js.map

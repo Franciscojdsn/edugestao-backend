@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.comunicadoRoutes = void 0;
+const express_1 = require("express");
+const comunicadoController_1 = require("../controllers/comunicadoController");
+const auth_1 = require("../middlewares/auth");
+const contextMiddleware_1 = require("../middlewares/contextMiddleware");
+const validate_1 = require("../middlewares/validate");
+const comunicadoSchemas_1 = require("../schemas/comunicadoSchemas");
+const router = (0, express_1.Router)();
+exports.comunicadoRoutes = router;
+router.use(auth_1.authMiddleware);
+router.use(contextMiddleware_1.contextMiddleware);
+router.post('/', (0, validate_1.validate)(comunicadoSchemas_1.criarComunicadoSchema), comunicadoController_1.comunicadoController.create);
+router.post('/enviar-massa', (0, validate_1.validate)(comunicadoSchemas_1.enviarComunicadoMassaSchema), comunicadoController_1.comunicadoController.enviarMassa);
+router.get('/', (0, validate_1.validate)(comunicadoSchemas_1.listarComunicadosSchema), comunicadoController_1.comunicadoController.list);
+router.get('/estatisticas', comunicadoController_1.comunicadoController.estatisticas);
+router.get('/alunos/:alunoId', comunicadoController_1.comunicadoController.listarPorAluno);
+router.get('/:id', comunicadoController_1.comunicadoController.show);
+router.put('/:id/marcar-lido', (0, validate_1.validate)(comunicadoSchemas_1.marcarLidoSchema), comunicadoController_1.comunicadoController.marcarLido);
+router.delete('/:id', comunicadoController_1.comunicadoController.delete);
+//# sourceMappingURL=comunicadoRoutes.js.map
