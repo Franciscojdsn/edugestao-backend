@@ -1,76 +1,67 @@
+// Refatoração do prisma.ts para Multi-tenancy Automático
 import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
-import dotenv from 'dotenv'
+import { logger } from '../utils/logger';
 import { requestContext } from '../utils/context'
-import { logAction } from '../utils/logAuditoria'
 
-dotenv.config()
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-})
-
-const adapter = new PrismaPg(pool)
-
-const prismaBase = new PrismaClient({
-  adapter,
-  log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error']
-})
+const prismaBase = new PrismaClient()
 
 export const prisma = prismaBase.$extends({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
-        // 1. Executa a query original primeiro
-        const result = await query(args)
+        const context = requestContext.getStore();
+        const escolaId = context?.escolaId;
 
-        // 2. Define operações auditáveis
-        const acoesEscrita = ['create', 'update', 'delete', 'upsert', 'updateMany', 'deleteMany']
+        // Tabelas que NÃO possuem escolaId (Exceções do Sistema)
+        const publicModels = ['Escola', 'LogAuditoria'];
+        const isPublicModel = publicModels.includes(model);
 
-        // Evita loop infinito no próprio log
-        if (model === 'LogAuditoria') return result
+        // 1. SEGURANÇA MÁXIMA: Impede escrita sem Tenant identificado
+        const writeOps = ['create', 'update', 'delete', 'upsert', 'updateMany', 'deleteMany'];
+        if (writeOps.includes(operation) && !escolaId && !isPublicModel) {
+          const errorMsg = `Tentativa de escrita bloqueada: ${operation} em ${model} sem escolaId.`;
 
-        if (acoesEscrita.includes(operation)) {
-          // Pega o contexto
-          const context = requestContext.getStore()
+          // ALERTA EM TEMPO REAL
+          await logger.critical(errorMsg, {
+            model,
+            operation,
+            userId: context?.userId,
+            args: (args as any).where || (args as any).data
+          });
 
-          // Tenta achar ID da escola no contexto ou nos dados da query
-          const argsData = (args as any)
-          const escolaId = context?.escolaId || argsData?.data?.escolaId || argsData?.where?.escolaId
+          throw new Error(`[CRITICAL SECURITY] ${errorMsg}`);
+        }
 
-          // Só audita se tiver escolaId (obrigatório no seu sistema)
-          if (escolaId) {
-            // Prepara IDs
-            let entidadeId = 'SISTEMA/LOTE'
-            if (result && typeof result === 'object' && 'id' in result) {
-              entidadeId = String((result as any).id)
-            } else if (argsData?.where?.id) {
-              entidadeId = String(argsData.where.id)
-            }
+        const result = await query(args);
 
-            // Dispara auditoria em background (sem await)
-            logAction({
-              entidade: model,
-              entidadeId,
-              acao: operation.toUpperCase() as any,
-              dadosNovos: argsData?.data || null,
-              dadosAntigos: argsData?.where || null,
-              usuarioId: context?.userId, // Manda o que tiver, o logAction trata se falhar
-              escolaId: escolaId,
-              ip: 'API'
-            })
+        if (writeOps.includes(operation) && escolaId && !isPublicModel) {
+          logger.audit({
+            entidade: model,
+            acao: operation.toUpperCase(),
+            entidadeId: (result as any)?.id || 'N/A',
+            escolaId,
+            usuarioId: context?.userId,
+            dadosNovos: (args as any).data
+          });
+        }
+
+        if (escolaId && !isPublicModel) {
+          // Filtro Global
+          if ('where' in args) args.where = { ...args.where, escolaId };
+
+          // Soft Delete Automático para Alunos
+          if (model === 'Aluno' && 'where' in args) {
+            args.where = { ...args.where, deletedAt: null };
+          }
+
+          // Auto-injeção no Create
+          if (operation === 'create' && 'data' in args) {
+            args.data = { ...args.data, escolaId: escolaId as any };
           }
         }
-        return result
+
+        return query(args);
       }
     }
   }
-})
-
-// Encerramento gracioso
-process.on('SIGINT', async () => {
-  await prismaBase.$disconnect()
-  await pool.end()
-  process.exit(0)
-})
+});

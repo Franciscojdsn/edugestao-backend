@@ -3,6 +3,10 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { errorHandler } from './middlewares/errorHandler'
 
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
+
 // Auth 
 import { authRoutes } from './routes/authRoutes'
 
@@ -58,10 +62,19 @@ const app = express()
 
 
 const allowedOrigins = [
+  'https://edugestao-frontend.vercel.app/',
   'https://edugestao-frontend-ov8k.vercel.app',
   'http://localhost:5173',
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove valores undefined/null
+
+app.use(helmet());
+app.use(cookieParser());
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Muitas requisições originadas deste IP, tente novamente mais tarde.'
+}));
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -76,7 +89,14 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json())
+// 2. Segurança de Cabeçalhos (Proteção contra XSS e Sniffing)
+app.use(helmet({
+  contentSecurityPolicy: true, // Ativa CSP estrito
+  crossOriginEmbedderPolicy: true
+}));
+
+// 3. Sanitização Básica (Proteção contra injeção de scripts nos inputs)
+app.use(express.json({ limit: '10kb' }));
 
 // Logger de Requisições para Debug
 app.use((req, res, next) => {

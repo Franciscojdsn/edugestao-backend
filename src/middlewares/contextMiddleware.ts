@@ -1,26 +1,22 @@
-import { Request, Response, NextFunction } from 'express'
-import { requestContext } from '../utils/context'
+import { Request, Response, NextFunction } from 'express';
+import { requestContext } from '../utils/context';
 
-export function contextMiddleware(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  if (req.user) {
-    // Normalização defensiva: tenta pegar userId OU id
-    const idDoUsuario = req.user.userId || (req.user as any).id;
+export function contextMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Pega os dados que o authMiddleware injetou no req.user
+  const user = req.user;
 
-    requestContext.run(
-      {
-        escolaId: req.user.escolaId,
-        userId: idDoUsuario, // Agora garantimos que não vai undefined
-        role: req.user.role,
-      },
-      () => {
-        next()
-      }
-    )
-  } else {
-    next()
+  if (!user || !user.escolaId) {
+    // Se a rota for pública, segue sem contexto. 
+    // Se for privada, o authMiddleware já teria barrado antes.
+    return next();
   }
+
+  // Cria a "bolha" de isolamento para esta requisição específica
+  requestContext.run({ 
+    escolaId: user.escolaId, 
+    userId: user.userId, 
+    role: user.role 
+  }, () => {
+    next();
+  });
 }

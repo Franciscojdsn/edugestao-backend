@@ -6,26 +6,23 @@ interface RequestContext {
   role?: string
 }
 
-// AsyncLocalStorage para armazenar contexto da requisição
 export const requestContext = new AsyncLocalStorage<RequestContext>()
 
-/**
- * Pega o contexto da requisição atual
- */
 export function getContext(): RequestContext {
-  return requestContext.getStore() || {}
+  const context = requestContext.getStore()
+  if (!context) {
+    // Em produção, isso garante que nenhuma query rode sem contexto
+    return {} 
+  }
+  return context
 }
 
-/**
- * Pega o escolaId da requisição atual
- */
-export function getEscolaId(): string | undefined {
-  return getContext().escolaId
+// Helper para garantir que o escolaId existe antes de uma operação crítica
+export function getRequiredEscolaId(): string {
+  const id = getContext().escolaId;
+  if (!id) throw new Error("Falha Crítica: escolaId não encontrado no contexto.");
+  return id;
 }
 
-/**
- * Pega o userId da requisição atual
- */
-export function getUserId(): string | undefined {
-  return getContext().userId
-}
+export function getEscolaId() { return getContext().escolaId }
+export function getUserId() { return getContext().userId }
