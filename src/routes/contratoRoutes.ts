@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { contratoController } from '../controllers/contratoController'
-import { authMiddleware, checkRole } from '../middlewares/auth'
+import { authMiddleware } from '../middlewares/auth'
 import { contextMiddleware } from '../middlewares/contextMiddleware'
 import { validate } from '../middlewares/validate'
 import {
@@ -21,15 +21,13 @@ router.put('/:id', validate(atualizarContratoSchema), contratoController.update)
 router.post('/:id/cancelar', contratoController.cancelar)
 router.post(
   '/:id/suspender',
-  checkRole(['ADMIN', 'SECRETARIA']),
   validate(suspenderContratoSchema),
   contratoController.suspender
 )
 
-router.post('/:id/reativar', checkRole(['ADMIN', 'SECRETARIA']), contratoController.reativarContrato)
+router.post('/:id/reativar', contratoController.reativarContrato)
 router.patch(
   '/:id/financeiro',
-  checkRole(['ADMIN', 'SECRETARIA']),
   contratoController.updateFinanceiro
 )
 

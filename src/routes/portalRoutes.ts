@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { portalController } from '../controllers/portalController'
-import { authMiddleware, checkRole } from '../middlewares/auth'
+import { authMiddleware } from '../middlewares/auth'
 import { contextMiddleware } from '../middlewares/contextMiddleware'
 import { validate } from '../middlewares/validate'
 import { getPortalDadosSchema } from '../schemas/portalSchemas'
@@ -17,7 +17,6 @@ router.use(contextMiddleware)
  */
 router.get(
     '/dashboard',
-    checkRole(['RESPONSAVEL']),
     validate(getPortalDadosSchema),
     portalController.getDashboard
 )
