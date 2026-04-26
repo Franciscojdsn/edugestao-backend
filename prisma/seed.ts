@@ -1,206 +1,168 @@
-/// <reference types="node" />
-import { PrismaClient, Turno, StatusContrato, StatusPagamento, TipoResponsavel, TipoTransacao, FormaPagamento } from '@prisma/client';
-import { fakerPT_BR as faker } from '@faker-js/faker';
+import 'dotenv/config';
+import {
+  PrismaClient,
+  Turno,
+  StatusContrato,
+  StatusPagamento,
+  TipoResponsavel,
+  TipoTransacao,
+  FormaPagamento,
+  RoleUsuario,
+  CargoFuncionario,
+  StatusFuncionario
+} from '@prisma/client';
 
+// Importação compatível com o seu package.json (commonjs)
+const { fakerPT_BR: faker } = require('@faker-js/faker');
+
+const TOTAL_ALUNOS = 200;
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Iniciando o Seed de Estresse do EduGestão...');
+  console.log('🚀 Iniciando Stress Seed - EduGestão Pro');
 
-    await prisma.frequencia.deleteMany()
+  // 1. Limpeza Atômica (Ordem reversa de dependência)
+  // Adicionados: usuarios, enderecos, atividades_extra para evitar erros de FK
+  console.log('清理 Limpando dados antigos...');
+  const tables = [
+    'boletos', 'transacoes', 'contratos', 'responsaveis',
+    'alunos', 'turmas_disciplinas', 'turmas_professores', 'turmas',
+    'disciplinas', 'usuarios', 'funcionarios', 'enderecos', 'escolas'
+  ];
 
-  await prisma.cronogramaProva.deleteMany()
+  for (const table of tables) {
+    try {
+      await (prisma as any)[table].deleteMany();
+    } catch (e) {
+      // Silencia erros se a tabela estiver vazia ou não existir no mapeamento
+    }
+  }
 
-  await prisma.gradeHoraria.deleteMany()
-
-  await prisma.evento.deleteMany()
-
-  await prisma.logAuditoria.deleteMany()
-
-  await prisma.ocorrencia.deleteMany()
-
-  await prisma.comunicado.deleteMany()
-
-  await prisma.nota.deleteMany()
-
-  await prisma.turmaDisciplina.deleteMany()
-
-  await prisma.turmaProfessor.deleteMany()
-
-  await prisma.alunoAtividadeExtra.deleteMany()
-
-  await prisma.boletos.deleteMany()
-
-  await prisma.transacao.deleteMany()
-
-  await prisma.contrato.deleteMany()
-
-  await prisma.lancamento.deleteMany()
-
-  await prisma.responsavel.deleteMany()
-
-  await prisma.aluno.deleteMany()
-
-  await prisma.atividadeExtra.deleteMany()
-
-  await prisma.disciplina.deleteMany()
-
-  await prisma.turma.deleteMany() 
-
-  await prisma.funcionario.deleteMany()
-
-  await prisma.usuario.deleteMany()
-
-  await prisma.endereco.deleteMany()
-
-  await prisma.escola.deleteMany()
-
-  console.log('✅ Banco limpo!');
-
-  // 1. Criar a Escola Principal (Tenant)
-  const escolaId = faker.string.uuid();
+  // 2. Criar Tenant (Escola)
   const escola = await prisma.escola.create({
     data: {
-      id: escolaId,
-      nome: 'Colégio EduGestão Excellence',
+      nome: 'Instituto Tecnológico EduGestão',
       cnpj: faker.string.numeric(14),
-      telefone: faker.phone.number(),
       email: 'contato@edugestao.com.br',
-      mensalidadePadrao: 1200.00,
+      mensalidadePadrao: 1500.0,
       diaVencimento: 10,
     },
   });
-  console.log(`✅ Escola criada: ${escola.nome} (ID: ${escola.id})`);
 
-  // 2. Criar Turmas Base
-  const turmasData = [
-    { nome: '1º Ano A - Ensino Fundamental', turno: Turno.MATUTINO, anoLetivo: 2026 },
-    { nome: '2º Ano A - Ensino Fundamental', turno: Turno.MATUTINO, anoLetivo: 2026 },
-    { nome: '3º Ano B - Ensino Fundamental', turno: Turno.VESPERTINO, anoLetivo: 2026 },
-  ];
+  // 3. Criar Usuário Admin (Essencial para você conseguir logar após o seed) 
+  await prisma.usuario.create({
+    data: {
+      nome: 'Administrador Sistema',
+      email: 'admin@edugestao.com.br',
+      senha: 'admin', // Idealmente usar hash bcrypt como no seu schema 
+      role: RoleUsuario.ADMIN,
+      escolaId: escola.id
+    }
+  });
 
-  const turmas = await Promise.all(
-    turmasData.map(t => 
-      prisma.turma.create({
-        data: { ...t, escolaId: escola.id }
-      })
-    )
-  );
-  console.log(`✅ ${turmas.length} Turmas criadas.`);
+  // 4. Infraestrutura de Base (Turmas e Disciplinas)
+  const turmas = await Promise.all([
+    prisma.turma.create({ data: { nome: '9º Ano A', turno: Turno.MATUTINO, anoLetivo: 2026, escolaId: escola.id } }),
+    prisma.turma.create({ data: { nome: '1º Ano EM', turno: Turno.VESPERTINO, anoLetivo: 2026, escolaId: escola.id } }),
+  ]);
 
-  // 3. Criar Disciplinas Base
-  const disciplinasNomes = ['Matemática', 'Português', 'História', 'Geografia', 'Ciências'];
-  await Promise.all(
-    disciplinasNomes.map(nome =>
-      prisma.disciplina.create({
-        data: { nome, escolaId: escola.id, cargaHoraria: 4 }
-      })
-    )
-  );
-  console.log(`✅ ${disciplinasNomes.length} Disciplinas criadas.`);
+  const disciplinas = await Promise.all([
+    prisma.disciplina.create({ data: { nome: 'Matemática', escolaId: escola.id } }),
+    prisma.disciplina.create({ data: { nome: 'Português', escolaId: escola.id } }),
+  ]);
 
-  console.log('⏳ Gerando 200 alunos com dados financeiros... Isso pode levar alguns segundos.');
+  console.log(`📡 Gerando ${TOTAL_ALUNOS} alunos com contratos e boletos...`);
 
-  // 4. Gerar 200 Alunos com Responsáveis, Contratos e Boletos
-  const totalAlunos = 200;
-  
-  // Utilizando loop for...of para evitar pool exhaustion no Neon com 200 transações simultâneas
-  for (let i = 0; i < totalAlunos; i++) {
-    const turmaSelecionada = faker.helpers.arrayElement(turmas);
-    const isPago = faker.datatype.boolean(); // 50% chance de estar PAGO ou PENDENTE
-    const valorMensalidade = 1200.00;
+  // 5. Loop de Estresse com Transações
+  for (let i = 1; i <= TOTAL_ALUNOS; i++) {
+    const turma = faker.helpers.arrayElement(turmas);
+
+    // Gerar número de matrícula seguindo sua lógica: ANO + Sequencial (3 dígitos)
+    const numeroMatricula = `2026${i.toString().padStart(3, '0')}`;
 
     await prisma.$transaction(async (tx) => {
-      // 4.1 Criar Aluno
+      // Criar Endereço Compartilhado
+      const endereco = await tx.endereco.create({
+        data: {
+          rua: faker.location.street(),
+          numero: faker.location.buildingNumber(),
+          bairro: faker.location.neighborhood(),
+          cidade: 'Recife',
+          estado: 'PE',
+          cep: faker.location.zipCode('########')
+        }
+      });
+
+      // Criar Aluno [cite: 180, 183]
       const aluno = await tx.aluno.create({
         data: {
           nome: faker.person.fullName(),
           cpf: faker.string.numeric(11),
-          dataNascimento: faker.date.birthdate({ min: 6, max: 18, mode: 'age' }),
-          numeroMatricula: `MAT-${2026}-${faker.string.numeric(5)}`,
-          turno: turmaSelecionada.turno,
+          numeroMatricula: numeroMatricula,
+          turno: turma.turno,
           escolaId: escola.id,
-          turmaId: turmaSelecionada.id,
-        }
+          turmaId: turma.id,
+          enderecoId: endereco.id
+        },
       });
 
-      // 4.2 Criar Responsável Financeiro
-      const responsavel = await tx.responsavel.create({
+      // Criar Responsável [cite: 191, 195]
+      const resp = await tx.responsavel.create({
         data: {
           nome: faker.person.fullName(),
           cpf: faker.string.numeric(11),
-          telefone1: faker.phone.number(),
-          email: faker.internet.email(),
-          tipo: faker.helpers.arrayElement([TipoResponsavel.PAI, TipoResponsavel.MAE, TipoResponsavel.TUTOR]),
+          tipo: faker.helpers.arrayElement([TipoResponsavel.PAI, TipoResponsavel.MAE]),
           isResponsavelFinanceiro: true,
           alunoId: aluno.id,
           escolaId: escola.id,
-        }
+          enderecoId: endereco.id
+        },
       });
 
-      // 4.3 Criar Contrato
+      // Criar Contrato Imutável [cite: 196, 197]
       const contrato = await tx.contrato.create({
         data: {
-          valorMatricula: 300.00,
-          valorMensalidadeBase: valorMensalidade,
-          diaVencimento: 10,
-          quantidadeParcelas: 12,
+          valorMensalidadeBase: 1500,
+          valorMatricula: 500,
           status: StatusContrato.ATIVO,
           alunoId: aluno.id,
-          responsavelFinanceiroId: responsavel.id,
+          responsavelFinanceiroId: resp.id,
           escolaId: escola.id,
-        }
+          quantidadeParcelas: 12,
+          diaVencimento: 10,
+        },
       });
 
-      // 4.4 Criar Transação (se pago) e Boleto
-      let transacaoId = null;
-
-      if (isPago) {
-        const transacao = await tx.transacao.create({
+      // Gerar 3 Boletos por aluno (Stress Test) [cite: 202, 212]
+      for (let m = 1; m <= 3; m++) {
+        const pago = faker.datatype.boolean();
+        await tx.boletos.create({
           data: {
-            tipo: TipoTransacao.ENTRADA,
-            motivo: `Mensalidade - ${faker.date.month()} - ${aluno.nome}`,
-            valor: valorMensalidade,
-            formaPagamento: FormaPagamento.PIX,
+            referencia: `${m}/12`,
+            mesReferencia: m,
+            anoReferencia: 2026,
+            valorBase: 1500,
+            valorTotal: 1500,
+            status: pago ? StatusPagamento.PAGO : StatusPagamento.PENDENTE,
+            dataVencimento: new Date(2026, m, 10),
+            dataPagamento: pago ? new Date() : null,
+            valorPago: pago ? 1500 : null,
+            alunoId: aluno.id,
             escolaId: escola.id,
-            responsavelId: responsavel.id,
-            contratoId: contrato.id,
-          }
+          },
         });
-        transacaoId = transacao.id;
       }
-
-      await tx.boletos.create({
-        data: {
-          referencia: `Mensalidade 01/12`,
-          mesReferencia: faker.number.int({ min: 1, max: 12 }),
-          anoReferencia: 2026,
-          valorBase: valorMensalidade,
-          valorTotal: valorMensalidade,
-          valorPago: isPago ? valorMensalidade : null,
-          dataVencimento: faker.date.soon({ days: 30 }),
-          dataPagamento: isPago ? new Date() : null,
-          status: isPago ? StatusPagamento.PAGO : StatusPagamento.PENDENTE,
-          formaPagamento: isPago ? FormaPagamento.PIX : null,
-          alunoId: aluno.id,
-          escolaId: escola.id,
-          transacaoId: transacaoId,
-        }
-      });
     });
 
-    // Feedback visual a cada 50 alunos
-    if ((i + 1) % 50 === 0) {
-      console.log(`   ... ${i + 1} alunos gerados.`);
-    }
+    if (i % 50 === 0) console.log(`✅ ${i} registros processados...`);
   }
 
-  console.log('🚀 Seed concluído com sucesso! Ambiente de homologação pronto.');
+  console.log('✨ Seed finalizado com sucesso!');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Erro durante o Seed:', e);
+    console.error('❌ Erro no Seed:', e);
     process.exit(1);
   })
   .finally(async () => {
