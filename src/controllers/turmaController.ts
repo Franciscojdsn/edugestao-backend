@@ -51,7 +51,7 @@ export const turmaController = {
     const turma = await prisma.turma.findFirst({
       where: { id: String(id) },
       include: {
-        professores: { include: { professor: true } },
+        turmaProfessors: { include: { professor: true } },
         _count: { select: { alunos: { where: { deletedAt: null } } } }
       }
     });
@@ -97,6 +97,7 @@ export const turmaController = {
             turmaId: novaTurma.id,
             professorId: dados.professorResponsavelId,
             isPrincipal: true,
+            escolaId: req.user?.escolaId as string,
             // escolaId será injetado pela extensão
           }
         });

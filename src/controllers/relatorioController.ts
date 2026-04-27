@@ -192,7 +192,7 @@ export const relatorioController = {
         _count: {
           select: {
             alunos: true,
-            professores: true,
+            turmaProfessores: true,
             disciplinas: true,
           },
         },
@@ -204,7 +204,7 @@ export const relatorioController = {
       turma: t.nome,
       turno: t.turno,
       qtdAlunos: t._count.alunos, // [ALTERADO] Nomes mais claros
-      qtdProfessores: t._count.professores,
+      qtdProfessores: t._count.turmaProfessores,
     }))
 
     return res.json({
@@ -225,8 +225,7 @@ export const relatorioController = {
         numeroMatricula: true,
         cpf: true,
         dataNascimento: true,
-        turno: true,
-        turma: { select: { nome: true, anoLetivo: true } },
+        turma: { select: { nome: true, anoLetivo: true, turno: true } },
         responsaveis: { select: { nome: true, tipo: true, telefone1: true, email: true } },
         contrato: { select: { valorMensalidadeBase: true, ativo: true } },
       },
@@ -243,7 +242,7 @@ export const relatorioController = {
           a.numeroMatricula,
           a.cpf || '',
           `"${a.turma?.nome || ''}"`,
-          a.turno || '',
+          a.turma?.turno || '',
           `"${resp.nome || ''}"`,
           resp.telefone1 || '',
           a.contrato?.valorMensalidadeBase || '0.00',
