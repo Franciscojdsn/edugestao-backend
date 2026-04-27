@@ -192,8 +192,8 @@ export const relatorioController = {
         _count: {
           select: {
             alunos: true,
-            turmaProfessores: true,
-            disciplinas: true,
+            turmaProfessors: true,
+            turmaDisciplinas: true,
           },
         },
       },
@@ -204,7 +204,7 @@ export const relatorioController = {
       turma: t.nome,
       turno: t.turno,
       qtdAlunos: t._count.alunos, // [ALTERADO] Nomes mais claros
-      qtdProfessores: t._count.turmaProfessores,
+      qtdProfessores: t._count.turmaProfessors,
     }))
 
     return res.json({
