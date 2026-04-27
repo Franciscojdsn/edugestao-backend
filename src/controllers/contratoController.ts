@@ -304,7 +304,8 @@ export const contratoController = {
               alunoId: contratoAtual.alunoId,
               atividadeExtraId: item.atividadeExtraId,
               ativo: true,
-              dataInicio: hoje
+              dataInicio: hoje,
+              escolaId: escolaId as string,
             }));
 
           if (itensParaCriar.length > 0) {

@@ -221,8 +221,8 @@ export const atividadeExtraController = {
       data: {
         alunoId,
         atividadeExtraId: atividadeId,
-        ativo: true
-        // escolaId será injetado pela extensão
+        ativo: true,
+        escolaId: req.user?.escolaId as string,
       }
     })
 

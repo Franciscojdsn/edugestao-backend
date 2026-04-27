@@ -54,6 +54,7 @@ export const matriculaController = {
           bairro: dados.endereco.bairro.trim(),
           cidade: dados.endereco.cidade.trim(),
           estado: dados.endereco.uf.substring(0, 2).toUpperCase(),
+          escolaId: escolaId,
         }
       });
 
