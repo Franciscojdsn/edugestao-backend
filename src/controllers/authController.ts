@@ -34,7 +34,7 @@ export const authController = {
     res.cookie('edugestao_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', // Mudamos de 'strict' para 'lax' para facilitar o dev local entre portas
+      sameSite: 'none', // Mudamos de 'strict' para 'lax' para facilitar o dev local entre portas
       path: '/',      // Explicitamos a raiz
       maxAge: 1000 * 60 * 60 * 24 // 24 horas
     });
