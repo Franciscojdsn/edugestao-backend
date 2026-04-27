@@ -1,84 +1,34 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
-/**
- * Schema para criar turma
- */
+const TurnoEnum = z.enum(['MANHA', 'TARDE', 'NOITE', 'INTEGRAL']); // Ajuste conforme seu Prisma Enum
+
 export const criarTurmaSchema = z.object({
   body: z.object({
-    nome: z.string()
-      .min(3, 'Nome deve ter no mínimo 3 caracteres')
-      .max(50, 'Nome muito longo'),
-
-    anoLetivo: z.number()
-      .int('Ano deve ser número inteiro')
-      .min(2000, 'Ano inválido')
-      .max(2100, 'Ano inválido'),
-
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'], {
-      error: () => ({ message: 'Turno inválido' })
-    }),
-
-    capacidadeMaxima: z.number()
-      .int('Capacidade deve ser número inteiro')
-      .positive('Capacidade deve ser positiva')
-      .optional(),
-
-    professorResponsavelId: z.string()
-      .uuid('ID de professor inválido')
-      .optional(),
+    nome: z.string().min(3, 'Nome muito curto').max(100, 'Nome excede 100 caracteres').trim(),
+    anoLetivo: z.number().int().min(2024, 'Ano letivo inválido').max(2100),
+    turno: TurnoEnum,
+    capacidadeMaxima: z.number().int().positive('Capacidade deve ser maior que zero').default(30),
+    // O ID do professor responsável virá aqui para facilitar a criação do vínculo na controller
+    professorResponsavelId: z.string().uuid().optional().nullable(),
   }),
-})
+});
 
-/**
- * Schema para atualizar turma
- */
 export const atualizarTurmaSchema = z.object({
   params: z.object({
     id: z.string().uuid('ID de turma inválido'),
   }),
-  body: z.object({
-    nome: z.string()
-      .min(3, 'Nome deve ter no mínimo 3 caracteres')
-      .max(100, 'Nome muito longo')
-      .optional(),
+  body: criarTurmaSchema.shape.body.partial()
+});
 
-
-    ano: z.number()
-      .int('Ano deve ser número inteiro')
-      .min(2000, 'Ano inválido')
-      .max(2100, 'Ano inválido')
-      .optional(),
-
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
-      .optional(),
-
-    capacidadeMaxima: z.number()
-      .int('Capacidade deve ser número inteiro')
-      .positive('Capacidade deve ser positiva')
-      .optional(),
-
-    professorResponsavelId: z.string().uuid().nullable().optional(),
-  }),
-})
-
-/**
- * Schema para listar turmas com filtros
- */
 export const listarTurmasSchema = z.object({
   query: z.object({
-    anoLetivo: z.string()
-      .transform(Number)
-      .optional(),
-
-    turno: z.enum(['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL'])
-      .optional(),
-
-
-    busca: z.string()
-      .min(1)
-      .optional(),
-  }).optional(),
-})
+    anoLetivo: z.coerce.number().int().optional(),
+    turno: TurnoEnum.optional(),
+    busca: z.string().max(100).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
 
 /**
  * Schema para buscar por ID

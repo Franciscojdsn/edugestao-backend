@@ -13,12 +13,6 @@ router.use(contextMiddleware)
 // Visão Geral: Faturamento, Total de Alunos e Inadimplência
 router.get('/geral', dashboardController.geral)
 
-// Visão Financeira/Turmas: Saúde financeira por agrupamento
-router.get('/turmas', dashboardController.turmas)
-
-// Visão Pedagógica: Médias globais, faltas e ocorrências
-router.get('/pedagogico', dashboardController.pedagogico)
-
 // Utilitário: Lista quem faz aniversário no mês selecionado
 router.get(
     '/aniversariantes',

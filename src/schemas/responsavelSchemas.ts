@@ -2,69 +2,54 @@ import { z } from 'zod'
 
 /**
  * SCHEMA: Criar Responsável
- * 
  * Valida os dados para criar um novo responsável vinculado a um aluno.
- * 
- * Campos obrigatórios:
- * - alunoId: ID do aluno (UUID)
- * - nome: Nome completo
- * - tipo: PAI, MAE, TUTOR, OUTROS
- * - telefone: Telefone de contato
  */
+const normalizeNumbers = (val: string) => val.replace(/\D/g, '');
+
 export const criarResponsavelSchema = z.object({
     body: z.object({
-        alunoId: z.string()
-            .uuid('ID de aluno inválido'),
+        alunoId: z.string().uuid('ID de aluno inválido'),
 
         nome: z.string()
             .min(3, 'Nome deve ter no mínimo 3 caracteres')
-            .max(100, 'Nome muito longo'),
+            .max(100, 'Nome excede 100 caracteres')
+            .trim(),
 
-        tipo: z.enum(['PAI', 'MAE', 'TUTOR', 'OUTROS'], {
-            error: () => ({ message: 'Tipo inválido. Use: PAI, MAE, TUTOR ou OUTROS' })
-        }),
+        tipo: z.enum(['PAI', 'MAE', 'AVO', 'TUTOR', 'OUTRO']), // Corrigido para bater com o Prisma
 
         cpf: z.string()
-            .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF inválido (formato: 000.000.000-00)')
-            .optional(),
+            .transform(normalizeNumbers)
+            .refine(val => val.length === 11 || val === '', 'CPF deve ter 11 dígitos')
+            .optional().nullable(),
 
-        escolaId: z.string()
-            .uuid('ID de escola inválido')
-            .optional(),
+        rg: z.string().min(5, 'RG muito curto').max(20, 'RG muito longo').trim().optional().nullable(),
+
+        telefone1: z.string()
+            .min(10, 'Telefone muito curto')
+            .max(15, 'Telefone excede limite')
+            .transform(normalizeNumbers)
+            .optional()
+            .nullable(),
+
+        telefone2: z.string()
+            .max(15)
+            .transform(normalizeNumbers)
+            .optional().nullable(),
 
         email: z.string()
             .email('Email inválido')
-            .optional(),
+            .max(70)
+            .toLowerCase()
+            .trim()
+            .optional().nullable(),
 
-        telefone1: z.string()
-            .min(10, 'Telefone inválido')
-            .max(20, 'Telefone muito longo')
-            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
-            .optional(),
+        isResponsavelFinanceiro: z.boolean().default(false),
 
-        telefone2: z.string()
-            .min(10, 'Telefone inválido')
-            .max(20, 'Telefone muito longo')
-            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
-            .optional(),
+        enderecoId: z.string().uuid().optional().nullable(),
 
-        isResponsavelFinanceiro: z.boolean(),
-
-        // Simplificou! Só espera o ID ou o Objeto
-        enderecoId: z.string().uuid("ID de endereço inválido").optional(),
-        endereco: z.object({
-            cep: z.string(),
-            rua: z.string(),
-            numero: z.string(),
-            complemento: z.string().optional(),
-            bairro: z.string(),
-            cidade: z.string(),
-            estado: z.string().length(2)
-        }).optional()
-    }).refine((data) => data.enderecoId || data.endereco, {
-        message: "É obrigatório enviar o enderecoId do aluno OU os dados de um novo endereço.",
-        path: ["endereco"] // Aponta o erro caso ambos venham vazios
-    })
+        // AVISO DO ARQUITETO: escolaId foi removido intencionalmente do Body. 
+        // Ele será injetado silenciosamente pelo backend.
+    }),
 });
 
 /**
@@ -77,53 +62,12 @@ export const atualizarResponsavelSchema = z.object({
     params: z.object({
         id: z.string().uuid('ID inválido'),
     }),
-    body: z.object({
-        nome: z.string()
-            .min(3, 'Nome deve ter no mínimo 3 caracteres')
-            .max(100, 'Nome muito longo')
-            .optional(),
-
-        tipo: z.enum(['PAI', 'MAE', 'TUTOR', 'OUTROS'])
-            .optional(),
-
-        cpf: z.string()
-            .regex(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, 'CPF inválido')
-            .optional(),
-
-        escolaId: z.string()
-            .uuid('ID de escola inválido')
-            .optional(),
-
-        email: z.string()
-            .email('Email inválido')
-            .optional(),
-
-        telefone1: z.string()
-            .min(10, 'Telefone inválido')
-            .max(20, 'Telefone muito longo')
-            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
-            .optional(),
-
-        telefone2: z.string()
-            .min(10, 'Telefone inválido')
-            .max(20, 'Telefone muito longo')
-            .regex(/^\+?\d{10,20}$/, 'Telefone deve conter apenas números e opcionalmente começar com +')
-            .optional(),
-
-        isResponsavelFinanceiro: z.boolean()
-            .optional(),
-
-        enderecoId: z.string()
-            .uuid()
-            .nullable()
-            .optional(),
-    }),
-})
+    // Aplica o partial apenas no objeto 'body' do schema original
+    body: criarResponsavelSchema.shape.body.partial()
+});
 
 /**
  * SCHEMA: Listar Responsáveis de um Aluno
- * 
- * Valida o ID do aluno nos params.
  */
 export const listarResponsaveisAlunoSchema = z.object({
     params: z.object({
@@ -133,26 +77,27 @@ export const listarResponsaveisAlunoSchema = z.object({
 
 /**
  * SCHEMA: Listar Todos os Responsáveis (Admin)
- * 
- * Permite busca e paginação.
  */
 export const listarResponsaveisSchema = z.object({
     query: z.object({
         page: z.string()
             .regex(/^\d+$/)
             .transform(Number)
+            .pipe(z.number().min(1))
             .optional(),
 
         limit: z.string()
             .regex(/^\d+$/)
             .transform(Number)
+            .pipe(z.number().min(1).max(100))
             .optional(),
 
         busca: z.string()
             .min(1)
+            .max(50, 'Busca muito longa')
             .optional(),
 
-        tipo: z.enum(['PAI', 'MAE', 'TUTOR', 'OUTROS'])
+        tipo: z.enum(['PAI', 'MAE', 'AVO', 'TUTOR', 'OUTRO'])
             .optional(),
 
         isResponsavelFinanceiro: z.string()

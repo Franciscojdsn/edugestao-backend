@@ -43,9 +43,6 @@ router.get(
  * POST /alunos
  * Cria novo aluno
  */
-router.post(
-  '/', validate(criarAlunoSchema), alunoController.create
-)
 
 /**
  * PUT /alunos/:id

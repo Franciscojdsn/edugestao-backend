@@ -1,393 +1,116 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
-import { withEscolaId } from '../utils/prismaHelpers'
 
-/**
- * CONTROLLER: Responsáveis
- * 
- * Gerencia operações de responsáveis de alunos.
- */
 export const responsavelController = {
-  
+
   /**
    * GET /alunos/:alunoId/responsaveis
-   * 
-   * Lista todos os responsáveis de um aluno específico.
-   * 
-   * Params:
-   * - alunoId: UUID do aluno
-   * 
-   * Retorna:
-   * - aluno: Dados básicos do aluno
-   * - responsaveis: Array de responsáveis
-   * - total: Quantidade total
    */
   async listarPorAluno(req: Request, res: Response) {
-    const { alunoId } = req.params
-    const idFormatado = Array.isArray(alunoId) ? alunoId[0] : alunoId
+    const { alunoId } = req.params;
+    const idFormatado = Array.isArray(alunoId) ? alunoId[0] : alunoId;
 
-    // Verificar se aluno existe e pertence à escola
+    // A extensão Prisma já garante que o aluno pertence à escola atual
+    // e que não está deletado (deletedAt: null).
     const aluno = await prisma.aluno.findFirst({
-      where: withEscolaId({
-        id: idFormatado,
-        deletedAt: null, // Aluno não deletado
-      }),
-      select: {
-        id: true,
-        nome: true,
-        numeroMatricula: true,
-      },
-    })
+      where: { id: idFormatado },
+      select: { id: true, nome: true, numeroMatricula: true }
+    });
 
-    if (!aluno) {
-      throw new AppError('Aluno não encontrado', 404)
-    }
+    if (!aluno) throw new AppError('Aluno não encontrado.', 404);
 
-    // Buscar responsáveis
     const responsaveis = await prisma.responsavel.findMany({
       where: { alunoId: idFormatado },
-      include: {
-        endereco: true,
-      },
-      orderBy: [
-        { isResponsavelFinanceiro: 'desc' }, // Financeiro primeiro
-        { nome: 'asc' },
-      ],
-    })
+      include: { endereco: true },
+      orderBy: { nome: 'asc' }
+    });
 
     return res.json({
-      aluno,
-      responsaveis,
-      total: responsaveis.length,
-    })
-  },
-
-  /**
-   * GET /responsaveis
-   * 
-   * Lista TODOS os responsáveis da escola (admin).
-   * Com filtros e paginação.
-   * 
-   * Query params:
-   * - page, limit
-   * - busca: Nome ou CPF
-   * - tipo: PAI, MAE, etc
-   * - isResponsavelFinanceiro: true/false
-   */
-  async list(req: Request, res: Response) {
-    const {
-      page = 1,
-      limit = 20,
-      busca,
-      tipo,
-      isResponsavelFinanceiro,
-    } = req.query
-
-    const skip = (Number(page) - 1) * Number(limit)
-
-    // Construir filtros
-    let where: any = {}
-
-    if (tipo) where.tipo = tipo
-    if (isResponsavelFinanceiro !== undefined) {
-      where.isResponsavelFinanceiro = isResponsavelFinanceiro === 'true'
-    }
-
-    // Busca por nome ou CPF
-    if (busca) {
-      where.OR = [
-        { nome: { contains: busca as string, mode: 'insensitive' } },
-        { cpf: { contains: busca as string, mode: 'insensitive' } },
-      ]
-    }
-
-    // Multi-tenancy via aluno
-    where.aluno = {
-      escolaId: req.user?.escolaId,
-      deletedAt: null,
-    }
-
-    // Buscar responsáveis
-    const [responsaveis, total] = await Promise.all([
-      prisma.responsavel.findMany({
-        where,
-        skip,
-        take: Number(limit),
-        select: {
-          id: true,
-          nome: true,
-          tipo: true,
-          cpf: true,
-          email: true,
-          isResponsavelFinanceiro: true,
-          aluno: {
-            select: {
-              id: true,
-              nome: true,
-              numeroMatricula: true,
-            },
-          },
-        },
-        orderBy: {
-          nome: 'asc',
-        },
-      }),
-      prisma.responsavel.count({ where }),
-    ])
-
-    return res.json({
-      data: responsaveis,
-      meta: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
-      },
-    })
-  },
-
-  /**
-   * GET /responsaveis/:id
-   * 
-   * Busca um responsável específico por ID.
-   * 
-   * Retorna dados completos incluindo:
-   * - Endereço
-   * - Aluno vinculado
-   * - Contratos (se for responsável financeiro)
-   */
-  async show(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
-
-    const responsavel = await prisma.responsavel.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: {
-          escolaId: req.user?.escolaId,
-          deletedAt: null,
-        },
-      },
-      include: {
-        aluno: {
-          select: {
-            id: true,
-            nome: true,
-            numeroMatricula: true,
-            turma: {
-              select: {
-                id: true,
-                nome: true,
-              },
-            },
-          },
-        },
-        endereco: true,
-        contratos: {
-          select: {
-            id: true,
-            diaVencimento: true,
-            dataInicio: true,
-            dataFim: true,
-          },
-        },
-      },
-    })
-
-    if (!responsavel) {
-      throw new AppError('Responsável não encontrado', 404)
-    }
-
-    return res.json(responsavel)
+      status: 'success',
+      data: { aluno, responsaveis, total: responsaveis.length }
+    });
   },
 
   /**
    * POST /responsaveis
-   * 
-   * Cria um novo responsável vinculado a um aluno.
-   * 
-   * Body:
-   * - alunoId: UUID (obrigatório)
-   * - nome, tipo, telefone: obrigatórios
-   * - cpf, email: opcionais
-   * - isResponsavelFinanceiro: boolean (default: false)
-   * 
-   * Validações:
-   * - Aluno deve existir e pertencer à escola
-   * - Se isResponsavelFinanceiro=true, remove flag dos outros
    */
   async create(req: Request, res: Response) {
-    const dados = req.body
-    const escolaId = req.user?.escolaId
+    const dados = req.body; // Já sanitizado pelo Zod
 
-    if (!escolaId) {
-      throw new AppError('Escola não identificada', 400)
+    // 1. Verifica se o aluno alvo pertence à escola (Segurança)
+    const alunoExistente = await prisma.aluno.findFirst({
+      where: { id: dados.alunoId }
+    });
+    if (!alunoExistente) throw new AppError('Aluno não encontrado.', 404);
+
+    // 2. Proteção de Unicidade Composta (Evitar múltiplos inserts do mesmo pai)
+    if (dados.cpf) {
+      const conflito = await prisma.responsavel.findFirst({
+        where: { cpf: dados.cpf, alunoId: dados.alunoId }
+      });
+      if (conflito) throw new AppError('Este responsável já está vinculado a este aluno.', 400);
     }
 
-    // Verificar se aluno existe e pertence à escola
-    const aluno = await prisma.aluno.findFirst({
-      where: withEscolaId({
-        id: dados.alunoId,
-        deletedAt: null,
-      }),
-    })
+    // 3. Criação (escolaId é injetado automaticamente pela extensão)
+    const novoResponsavel = await prisma.responsavel.create({
+      data: { ...dados, alunoId: dados.alunoId }
+    });
 
-    if (!aluno) {
-      throw new AppError('Aluno não encontrado', 404)
-    }
-
-    // Se está marcando como responsável financeiro
-    if (dados.isResponsavelFinanceiro) {
-      // Remover flag dos outros responsáveis deste aluno
-      await prisma.responsavel.updateMany({
-        where: { alunoId: dados.alunoId },
-        data: { isResponsavelFinanceiro: false },
-      })
-    }
-
-    // Criar responsável
-    const responsavel = await prisma.responsavel.create({
-      data: {
-        ...dados,
-        escolaId, // Multi-tenancy
-      },
-      include: {
-        aluno: {
-          select: {
-            id: true,
-            nome: true,
-            numeroMatricula: true,
-          },
-        },
-      },
-    })
-
-    return res.status(201).json(responsavel)
+    return res.status(201).json({
+      status: 'success',
+      message: 'Responsável adicionado com sucesso.',
+      data: novoResponsavel
+    });
   },
 
   /**
    * PUT /responsaveis/:id
-   * 
-   * Atualiza um responsável existente.
-   * 
-   * Não permite alterar o alunoId (vínculo é fixo).
-   * 
-   * Se alterar isResponsavelFinanceiro para true,
-   * remove a flag dos outros responsáveis do mesmo aluno.
    */
   async update(req: Request, res: Response) {
-    const { id } = req.params
-    const dados = req.body
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const id = req.params.id as string;
+    const dados = req.body;
 
-    // Verificar se responsável existe e pertence à escola
-    const responsavelExistente = await prisma.responsavel.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: {
-          escolaId: req.user?.escolaId,
-          deletedAt: null,
-        },
-      },
-    })
+    const responsavel = await prisma.responsavel.findFirst({ 
+      where: { id } 
+    });
+    if (!responsavel) throw new AppError('Responsável não encontrado.', 404);
 
-    if (!responsavelExistente) {
-      throw new AppError('Responsável não encontrado', 404)
-    }
+    const atualizado = await prisma.responsavel.update({
+      where: { id },
+      data: dados
+    });
 
-    // Se está alterando para responsável financeiro
-    if (dados.isResponsavelFinanceiro && !responsavelExistente.isResponsavelFinanceiro) {
-      // Remover flag dos outros
-      await prisma.responsavel.updateMany({
-        where: {
-          alunoId: responsavelExistente.alunoId,
-          id: { not: idFormatado },
-        },
-        data: { isResponsavelFinanceiro: false },
-      })
-    }
-
-    // Atualizar
-    const responsavel = await prisma.responsavel.update({
-      where: { id: idFormatado },
-      data: dados,
-      include: {
-        aluno: {
-          select: {
-            id: true,
-            nome: true,
-          },
-        },
-      },
-    })
-
-    return res.json(responsavel)
+    return res.json({
+      status: 'success',
+      message: 'Dados atualizados.',
+      data: atualizado
+    });
   },
 
   /**
    * DELETE /responsaveis/:id
-   * 
-   * Deleta um responsável.
-   * 
-   * IMPORTANTE: Responsável NÃO tem soft delete.
-   * É hard delete (DELETE físico).
-   * 
-   * Proteção:
-   * - Não permite deletar se for único responsável do aluno
-   * - Não permite deletar se tiver contratos ativos
+   * Hard Delete Protegido (Conformidade Financeira)
    */
   async delete(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const id = req.params.id as string;
 
-    // Verificar se responsável existe
     const responsavel = await prisma.responsavel.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: {
-          escolaId: req.user?.escolaId,
-          deletedAt: null,
-        },
-      },
-      include: {
-        _count: {
-          select: {
-            contratos: true,
-          },
-        },
-      },
-    })
+      where: { id: id },
+      include: { _count: { select: { contratos: true } } }
+    });
 
-    if (!responsavel) {
-      throw new AppError('Responsável não encontrado', 404)
-    }
+    if (!responsavel) throw new AppError('Responsável não encontrado.', 404);
 
-    // Não permitir deletar se tiver contratos
+    // TRAVA FINANCEIRA: Não apaga se for pagador de um contrato
     if (responsavel._count.contratos > 0) {
-      throw new AppError(
-        'Não é possível deletar responsável com contratos vinculados',
-        400
-      )
+      throw new AppError('Operação bloqueada. Este responsável possui contratos financeiros vinculados.', 403);
     }
 
-    // Verificar se é o único responsável do aluno
-    const totalResponsaveis = await prisma.responsavel.count({
-      where: { alunoId: responsavel.alunoId },
-    })
+    // Como Responsavel não tem deletedAt (pois é atrelado fisicamente ao aluno), fazemos delete direto.
+    // A extensão garantirá que seja deletado apenas se pertencer à escola.
+    await prisma.responsavel.delete({ where: { id } });
 
-    if (totalResponsaveis === 1) {
-      throw new AppError(
-        'Não é possível deletar o único responsável do aluno',
-        400
-      )
-    }
-
-    // Deletar
-    await prisma.responsavel.delete({
-      where: { id: idFormatado },
-    })
-
-    return res.status(204).send()
-  },
-}
+    return res.status(204).send();
+  }
+};

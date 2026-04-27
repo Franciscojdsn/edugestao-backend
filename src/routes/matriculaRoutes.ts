@@ -7,7 +7,6 @@ import {
   iniciarMatriculaSchema,
   adicionarResponsavelSchema,
   finalizarMatriculaSchema,
-  listarMatriculasSchema,
 } from '../schemas/matriculaSchemas'
 
 const router = Router()
@@ -17,7 +16,6 @@ router.use(contextMiddleware)
 router.post('/iniciar', validate(iniciarMatriculaSchema), matriculaController.iniciar)
 router.post('/:matriculaId/responsaveis', validate(adicionarResponsavelSchema), matriculaController.adicionarResponsavel)
 router.post('/:matriculaId/finalizar', validate(finalizarMatriculaSchema), matriculaController.finalizar)
-router.get('/', validate(listarMatriculasSchema), matriculaController.list)
 router.get('/:id', matriculaController.show)
 router.put('/:id/status', matriculaController.atualizarStatus)
 router.delete('/:id', matriculaController.cancelar)

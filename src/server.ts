@@ -57,24 +57,25 @@ import { portalResponsavelRoutes } from './routes/portalResponsavelRoutes'
 import { logAuditoriaRoutes } from './routes/logAuditoriaRoutes'
 
 dotenv.config()
-
 const app = express()
 
 
 const allowedOrigins = [
-  'https://edugestao-frontend.vercel.app/',
+  'https://edugestao-frontend.vercel.app',
   'https://edugestao-frontend-ov8k.vercel.app',
-  'http://localhost:5173',
+  'http://localhost:3000',
   process.env.FRONTEND_URL
-].filter(Boolean); // Remove valores undefined/null
+].filter(Boolean) as string[]; // Remove valores undefined/null
 
-app.use(helmet());
+// 2. Segurança de Cabeçalhos (Proteção contra XSS e Sniffing)
+app.use(helmet({
+  contentSecurityPolicy: true, // Ativa CSP estrito
+  crossOriginEmbedderPolicy: true
+})); 
+
+app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Muitas requisições originadas deste IP, tente novamente mais tarde.'
-}));
+
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -89,14 +90,15 @@ app.use(cors({
   credentials: true
 }));
 
-// 2. Segurança de Cabeçalhos (Proteção contra XSS e Sniffing)
-app.use(helmet({
-  contentSecurityPolicy: true, // Ativa CSP estrito
-  crossOriginEmbedderPolicy: true
-}));
-
 // 3. Sanitização Básica (Proteção contra injeção de scripts nos inputs)
-app.use(express.json({ limit: '10kb' }));
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Muitas requisições originadas deste IP, tente novamente mais tarde.'
+});
+app.use('/auth/', limiter); // Aplica apenas em rotas sensíveis como login
+
 
 // Logger de Requisições para Debug
 app.use((req, res, next) => {

@@ -5,8 +5,6 @@ import { contextMiddleware } from '../middlewares/contextMiddleware'
 import { validate } from '../middlewares/validate'
 import {
   criarFuncionarioSchema,
-  atualizarFuncionarioSchema,
-  editarFuncionarioSchema,
   listarFuncionariosSchema,
   registrarPagamentoSchema,
   idFuncionarioSchema,
@@ -39,11 +37,7 @@ router.get(
  * GET /funcionarios/:id
  * Busca funcionário por ID
  */
-router.get(
-  '/:id',
-  validate(idFuncionarioSchema),
-  funcionarioController.show
-)
+
 
 /**
  * POST /funcionarios
@@ -69,11 +63,7 @@ router.post(
  * PUT /funcionarios/:id
  * Atualiza funcionário
  */
-router.put(
-  '/:id',
-  validate(editarFuncionarioSchema),
-  funcionarioController.update
-)
+
 
 /**
  * DELETE /funcionarios/:id

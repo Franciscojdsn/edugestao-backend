@@ -10,7 +10,6 @@ router.use(authMiddleware)
 router.use(contextMiddleware)
 
 router.get('/', enderecoController.list)
-router.get('/cep/:cep', enderecoController.buscarPorCep)
 router.get('/:id', enderecoController.show)
 router.post('/', validate(criarEnderecoSchema), enderecoController.create)
 router.put('/:id', validate(atualizarEnderecoSchema), enderecoController.update)

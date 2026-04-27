@@ -1,56 +1,100 @@
-// authController.ts refatorado
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../config/prisma'
 import { generateToken } from '../utils/jwt'
+import { AppError } from '../middlewares/errorHandler'
 
 export const authController = {
+  /**
+   * POST /auth/login
+   */
   async login(req: Request, res: Response) {
     const { email, senha } = req.body;
 
-    try {
-      const usuario = await prisma.usuario.findUnique({
-        where: { email: email.trim().toLowerCase() },
-        include: { escola: true } // Validar status da escola
-      });
+    // AVISO DO ARQUITETO: O login é a ÚNICA rota que busca dados antes 
+    // de ter o contexto da escola. Por isso, findUnique global é permitido aqui.
+    const usuario = await prisma.usuario.findUnique({
+      where: { email }, // Zod já garantiu que está em lowerCase
+      include: { escola: true }
+    });
 
-      if (!usuario || !(await bcrypt.compare(senha.trim(), usuario.senha))) {
-        return res.status(401).json({ message: 'Credenciais inválidas' });
-      }
+    // Proteção contra enumeração de usuários (Time-safe concept)
+    if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
+      return res.status(401).json({ status: 'error', message: 'Credenciais inválidas' });
+    }
 
-      // 1. Gerar Token
-      const token = generateToken({
-        userId: usuario.id,
-        escolaId: usuario.escolaId,
-        role: usuario.role,
-      });
+    // 1. Gerar Token
+    const token = generateToken({
+      userId: usuario.id,
+      escolaId: usuario.escolaId,
+      role: usuario.role,
+    });
 
-      // 2. Injetar no Cookie Seguro
-      res.cookie('edugestao_token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em prod
-        sameSite: 'strict', // Previne CSRF
-        maxAge: 1000 * 60 * 60 * 24 // 24 horas
-      });
+    // 2. Injetar no Cookie Seguro (Defesa contra XSS)
+    res.cookie('edugestao_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // Mudamos de 'strict' para 'lax' para facilitar o dev local entre portas
+      path: '/',      // Explicitamos a raiz
+      maxAge: 1000 * 60 * 60 * 24 // 24 horas
+    });
 
-      // 3. Retornar apenas dados não sensíveis
-      return res.json({
+    return res.json({
+      status: 'success',
+      data: {
         user: {
           id: usuario.id,
           nome: usuario.nome,
           email: usuario.email,
           role: usuario.role,
-          escolaId: usuario.escolaId
+          escolaId: usuario.escolaId,
         }
-      });
-    } catch (error) {
-      console.error("[AUTH_ERROR]", error);
-      return res.status(500).json({ message: 'Erro interno no servidor' });
-    }
+      }
+    });
   },
 
+  /**
+   * POST /auth/logout
+   * Remove o cookie HttpOnly do navegador do usuário
+   */
   async logout(req: Request, res: Response) {
-    res.clearCookie('edugestao_token');
-    return res.status(204).send();
-  }
+    res.clearCookie('edugestao_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/', // OBRIGATÓRIO ser igual ao do login
+    });
+
+    return res.json({ status: 'success', message: 'Logout realizado com sucesso.' });
+  },
+
+  /**
+   * GET /auth/me
+   * Retorna os dados do usuário logado baseado no cookie de sessão
+   */
+  async me(req: Request, res: Response) {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      throw new AppError('Não autorizado', 401);
+    }
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        role: true,
+        escolaId: true,
+        escola: {
+          select: { nome: true }
+        }
+      }
+    });
+
+    if (!usuario) throw new AppError('Usuário não encontrado', 404);
+
+    return res.json({ status: 'success', data: { user: usuario } });
+  },
 }

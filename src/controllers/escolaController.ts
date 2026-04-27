@@ -1,69 +1,58 @@
-import { Request, Response } from 'express'
-import { prisma } from '../config/prisma'
-import { AppError } from '../middlewares/errorHandler'
+import { Request, Response } from 'express';
+import { prisma } from '../config/prisma';
+import { AppError } from '../middlewares/errorHandler';
 
 export const escolaController = {
-  // GET /escolas - Listar todas
-  async list(req: Request, res: Response) {
-    // ⚠️ ESCOLA NÃO TEM escolaId! 
-    // Usuário só consegue ver a própria escola baseado no JWT
-    const escolaId = req.user?.escolaId
-
-    if (!escolaId) {
-      throw new AppError('Usuário não autenticado', 401)
-    }
-
-    // Retorna apenas a escola do usuário
-    const escola = await prisma.escola.findUnique({
-      where: { id: escolaId },
-      select: {
-        id: true,
-        nome: true,
-        cnpj: true,
-        telefone: true,
-        email: true,
-        mensalidadePadrao: true,
-        diaVencimento: true,
-        createdAt: true,
-      },
-    })
-
-    if (!escola) {
-      throw new AppError('Escola não encontrada', 404)
-    }
-
-    // Retorna array com 1 escola (compatível com frontend)
-    return res.json([escola])
-  },
-
-  // GET /escolas/:id - Detalhe
+  /**
+   * GET /escolas/me
+   * Retorna os dados da escola do usuário logado
+   */
   async show(req: Request, res: Response) {
-    const { id } = req.params
-    const escolaId = req.user?.escolaId
+    // SEGURANÇA: Nunca usamos o ID da URL se pudermos usar o ID do Token
+    const escolaId = req.user?.escolaId;
 
-    // Verifica se o ID solicitado é da escola do usuário
-    if (id !== escolaId) {
-      throw new AppError('Acesso negado', 403)
-    }
+    if (!escolaId) throw new AppError('Contexto de escola não encontrado.', 401);
 
-    const escola = await prisma.escola.findUnique({
-      where: { id },
+    const escola = await prisma.escola.findFirst({
+      where: { id: String(escolaId) }, // Padrão String(id) solicitado
       include: {
         _count: {
-          select: {
-            alunos: true,
-            funcionarios: true,
-            turmas: true,
-            usuarios: true,
-          },
-        },
-      },
-    })
+          select: { alunos: true, turmas: true, funcionarios: true }
+        }
+      }
+    });
 
-    if (!escola) {
-      throw new AppError('Escola não encontrada', 404)
+    if (!escola) throw new AppError('Escola não encontrada.', 404);
+
+    return res.json({ status: 'success', data: escola });
+  },
+
+  /**
+   * PUT /escolas/:id
+   * Atualiza as configurações da instituição
+   */
+  async update(req: Request, res: Response) {
+    const { id } = req.params;
+    const dados = req.body;
+    const userEscolaId = req.user?.escolaId;
+
+    // BLOQUEIO ARQUITETURAL: Uma escola não edita outra.
+    if (id !== userEscolaId) {
+      throw new AppError('Violação de Tenancy: Você não tem permissão para alterar outra instituição.', 403);
     }
 
-    return res.json(escola)
-  },
-}
+    const escolaAtualizada = await prisma.escola.update({
+      where: { id: String(id) },
+      data: dados
+    });
+
+    // Auditoria de alteração de configurações globais
+    console.log(`[AUDIT] Configurações da escola ${id} alteradas por ${req.user?.userId}`);
+
+    return res.json({
+      status: 'success',
+      message: 'Configurações da instituição atualizadas.',
+      data: escolaAtualizada
+    });
+  }
+};

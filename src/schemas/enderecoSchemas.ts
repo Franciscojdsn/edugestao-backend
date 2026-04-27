@@ -1,26 +1,24 @@
-import { z } from 'zod'
+import { z } from 'zod';
+
+const normalizeNumbers = (val: string) => val.replace(/\D/g, '');
 
 export const criarEnderecoSchema = z.object({
   body: z.object({
-    rua: z.string().min(3).max(200),
-    numero: z.string().max(20),
-    complemento: z.string().max(100).optional(),
-    bairro: z.string().min(3).max(100),
-    cidade: z.string().min(3).max(100),
-    estado: z.string().length(2).toUpperCase(),
-    cep: z.string().regex(/^\d{5}-\d{3}$/, 'CEP inválido (formato: 00000-000)'),
+    rua: z.string().min(3).max(150, 'Rua excede 150 caracteres').trim(),
+    numero: z.string().min(1).max(20, 'Número excede 20 caracteres').trim(),
+    complemento: z.string().max(100).trim().optional().nullable(),
+    bairro: z.string().min(2).max(100).trim(),
+    cidade: z.string().min(2).max(100).trim(),
+    estado: z.string().length(2, 'Estado deve ter exatos 2 caracteres (UF)').toUpperCase(),
+    
+    // Transforma "00000-000" em "00000000" antes de salvar
+    cep: z.string()
+      .transform(normalizeNumbers)
+      .refine(val => val.length === 8, 'CEP deve conter exatos 8 dígitos'),
   }),
-})
+});
 
 export const atualizarEnderecoSchema = z.object({
-  params: z.object({ id: z.string().uuid() }),
-  body: z.object({
-    rua: z.string().min(3).max(200).optional(),
-    numero: z.string().max(20).optional(),
-    complemento: z.string().max(100).optional(),
-    bairro: z.string().min(3).max(100).optional(),
-    cidade: z.string().min(3).max(100).optional(),
-    estado: z.string().length(2).toUpperCase().optional(),
-    cep: z.string().regex(/^\d{5}-\d{3}$/).optional(),
-  }),
-})
+  params: z.object({ id: z.string().uuid('ID de endereço inválido') }),
+  body: criarEnderecoSchema.shape.body.partial()
+});

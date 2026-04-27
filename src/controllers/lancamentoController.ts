@@ -1,103 +1,98 @@
 import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
+import { AppError } from '../middlewares/errorHandler';
 
 export const lancamentoController = {
     // Criar novo lançamento (Entrada ou Saída Avulsa)
     async create(req: Request, res: Response) {
-        const {
-            descricao, tipo, categoria, valor,
-            dataVencimento, alunoId, funcionarioId
-        } = req.body
-
-        const escolaId = req.user?.escolaId
-
-        if (!escolaId) {
-            return res.status(401).json({ error: 'Escola não identificada no token.' })
-        }
+        const dados = req.body;
 
         const lancamento = await prisma.lancamento.create({
             data: {
-                descricao,
-                tipo, // 'ENTRADA' ou 'SAIDA'
-                categoria,
-                valor,
-                dataVencimento: new Date(dataVencimento),
-                escolaId,
-                alunoId: alunoId || null,
-                funcionarioId: funcionarioId || null,
+                ...dados,
                 status: 'PENDENTE'
+                // escolaId injetado automaticamente pela Prisma Extension
             }
-        })
+        });
 
-        return res.status(201).json(lancamento)
+        return res.status(201).json({ status: 'success', data: lancamento });
     },
 
     // Listar lançamentos com filtros
     async list(req: Request, res: Response) {
-        const { tipo, status, mes, ano } = req.query
-        const escolaId = req.user?.escolaId
+        const { tipo, status, mes, ano, page = 1, limit = 20 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
 
-        let where: any = { escolaId, deletedAt: null }
-
-        if (tipo) where.tipo = tipo as any
-        if (status) where.status = status as any
+        const where: any = {};
+        if (tipo) where.tipo = tipo;
+        if (status) where.status = status;
 
         if (mes && ano) {
-            const inicioMes = new Date(Number(ano), Number(mes) - 1, 1)
-            const fimMes = new Date(Number(ano), Number(mes), 0)
-            where.dataVencimento = { gte: inicioMes, lte: fimMes }
+            const start = new Date(Number(ano), Number(mes) - 1, 1);
+            const end = new Date(Number(ano), Number(mes), 0, 23, 59, 59);
+            where.dataVencimento = { gte: start, lte: end };
         }
 
-        const lancamentos = await prisma.lancamento.findMany({
-            where,
-            include: {
-                aluno: { select: { nome: true } },
-                funcionario: { select: { nome: true } }
-            },
-            orderBy: { dataVencimento: 'asc' }
-        })
+        const [lancamentos, total] = await Promise.all([
+            prisma.lancamento.findMany({
+                where,
+                skip,
+                take: Number(limit),
+                include: {
+                    aluno: { select: { nome: true } },
+                    funcionario: { select: { nome: true } },
+                    responsavel: { select: { nome: true } }
+                },
+                orderBy: { dataVencimento: 'asc' }
+            }),
+            prisma.lancamento.count({ where })
+        ]);
 
-        return res.json(lancamentos)
+        return res.json({
+            status: 'success',
+            data: lancamentos,
+            meta: { total, page: Number(page) }
+        });
     },
 
     // Liquidar um lançamento (Marcar como PAGO/RECEBIDO e gerar Transação Real)
     async liquidar(req: Request, res: Response) {
-        const id = req.params.id as string;
-        const { dataPagamento, formaPagamento } = req.body
+        const { id } = req.params;
+        const idFormatado = Array.isArray(id) ? id[0] : id;
+        const { dataPagamento, formaPagamento } = req.body;
 
-        const lancamento = await prisma.lancamento.findUnique({
-            where: { id }
-        })
+        const lancamento = await prisma.lancamento.findFirst({ where: { id: idFormatado } });
 
-        if (!lancamento) return res.status(404).json({ error: 'Lançamento não encontrado' })
+        if (!lancamento) throw new AppError('Lançamento não encontrado', 404);
+        if (lancamento.status === 'PAGO') throw new AppError('Este lançamento já foi liquidado', 400);
 
-        // Usamos uma transação do Prisma para garantir que ou faz tudo ou nada
         const resultado = await prisma.$transaction(async (tx) => {
-            // 1. Atualiza o lançamento
+            // 1. Atualiza o status da dívida/recebível
             const atualizado = await tx.lancamento.update({
-                where: { id },
+                where: { id: idFormatado },
                 data: {
                     status: 'PAGO',
-                    dataLiquidacao: new Date(dataPagamento || new Date())
+                    dataLiquidacao: dataPagamento || new Date(),
                 }
-            })
+            });
 
-            // 2. Cria a Transação Real (que aparece no extrato/auditoria)
-            await tx.transacao.create({
+            // 2. Cria a Transação de Caixa (Efetiva a entrada/saída de dinheiro no dia)
+            const transacao = await tx.transacao.create({
                 data: {
                     escolaId: lancamento.escolaId,
                     tipo: lancamento.tipo,
                     valor: lancamento.valor,
-                    motivo: lancamento.descricao,
-                    data: new Date(dataPagamento || new Date()),
-                    formaPagamento: formaPagamento || 'DINHEIRO'
+                    motivo: `Liquidação: ${lancamento.descricao}`,
+                    data: dataPagamento || new Date(),
+                    formaPagamento,
+                    // A Extensão também cuida do escolaId aqui
                 }
-            })
+            });
 
-            return atualizado
-        })
+            return { lancamento: atualizado, transacaoId: transacao.id };
+        });
 
-        return res.json(resultado)
+        return res.json({ status: 'success', message: 'Lançamento liquidado e contabilizado no caixa.', data: resultado });
     },
 
     // Soft delete de lançamento
@@ -134,70 +129,36 @@ export const lancamentoController = {
     // Estornar um lançamento pago
     async estornar(req: Request, res: Response) {
         const id = req.params.id as string
-        const { motivo } = req.body
-        const escolaId = req.user?.escolaId
-        const usuarioId = req.user?.userId
-
-        if (!escolaId) {
-            return res.status(401).json({ error: 'Escola não identificada no token.' })
-        }
-
-        const lancamento = await prisma.lancamento.findFirst({
-            where: { id, escolaId, deletedAt: null }
-        })
-
-        if (!lancamento) {
-            return res.status(404).json({ error: 'Lançamento não encontrado.' })
-        }
-
-        if (lancamento.status !== 'PAGO') {
-            return res.status(400).json({ error: 'Apenas lançamentos pagos podem ser estornados.' })
-        }
-
-        // Lógica de status pós-estorno baseada no vencimento
-        const hoje = new Date()
-        hoje.setHours(0, 0, 0, 0)
-        const dataVencimento = new Date(lancamento.dataVencimento)
-        dataVencimento.setHours(0, 0, 0, 0)
-
-        const novoStatus = dataVencimento < hoje ? 'VENCIDO' : 'PENDENTE'
+        const lancamento = await prisma.lancamento.findFirst({ where: { id } });
+        if (!lancamento) throw new AppError('Lançamento não encontrado', 404);
+        if (lancamento.status !== 'PAGO') throw new AppError('Apenas lançamentos pagos podem ser estornados', 400);
 
         const resultado = await prisma.$transaction(async (tx) => {
-            // 1. Atualizar o Lançamento original
-            const atualizado = await tx.lancamento.update({
+            // 1. Volta a conta para pendente
+            const estornado = await tx.lancamento.update({
                 where: { id },
                 data: {
-                    status: novoStatus,
+                    status: 'PENDENTE',
                     dataLiquidacao: null
                 }
-            })
+            });
 
-            // 2. Criar Transação Compensatória (Inversa)
+            // 2. Lançamento inverso no caixa para zerar o saldo
+            const tipoInverso = lancamento.tipo === 'ENTRADA' ? 'SAIDA' : 'ENTRADA';
             await tx.transacao.create({
                 data: {
                     escolaId: lancamento.escolaId,
-                    tipo: lancamento.tipo === 'ENTRADA' ? 'SAIDA' : 'ENTRADA',
+                    tipo: tipoInverso,
                     valor: lancamento.valor,
-                    motivo: `ESTORNO: ${lancamento.descricao}`,
+                    motivo: `ESTORNO de Liquidação: ${lancamento.descricao}`,
                     data: new Date(),
-                    formaPagamento: 'TRANSFERENCIA'
+                    formaPagamento: 'TRANSFERENCIA' // Ou outro método de estorno
                 }
-            })
+            });
 
-            // 3. Log de Auditoria
-            await tx.logAuditoria.create({
-                data: {
-                    escolaId,
-                    usuarioId: usuarioId!,
-                    acao: 'ESTORNO_LANCAMENTO',
-                    entidade: 'LANCAMENTO',
-                    entidadeId: id,
-                }
-            })
+            return estornado;
+        });
 
-            return atualizado
-        })
-
-        return res.json(resultado)
+        return res.json({ status: 'success', message: 'Estorno realizado com sucesso.', data: resultado });
     }
-}
+};

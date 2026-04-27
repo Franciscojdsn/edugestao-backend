@@ -5,16 +5,18 @@ import { withTenancy, withEscolaId } from '../utils/prismaHelpers'
 
 // Listar contratos
 export const contratoController = {
+  /**
+   * GET /contratos - Listagem Multi-tenant
+   */
   async list(req: Request, res: Response) {
-    const { page = 1, limit = 20, status, alunoId } = req.query
-    const skip = (Number(page) - 1) * Number(limit)
+    const { page = 1, limit = 20, status, alunoId } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
 
-    let where: any = {}
-    if (status) where.status = status
-    if (alunoId) where.alunoId = alunoId
+    const where: any = {};
+    if (status) where.status = status;
+    if (alunoId) where.alunoId = alunoId;
 
-    where.aluno = { escolaId: req.user?.escolaId, deletedAt: null }
-
+    // A extensão Prisma injetará escolaId automaticamente aqui
     const [contratos, total] = await Promise.all([
       prisma.contrato.findMany({
         where,
@@ -22,132 +24,88 @@ export const contratoController = {
         take: Number(limit),
         include: {
           aluno: { select: { id: true, nome: true, numeroMatricula: true } },
-          responsavelFinanceiro: { select: { id: true, nome: true } },
-          _count: { select: { transacoes: true } },
+          responsavelFinanceiro: { select: { id: true, nome: true, cpf: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.contrato.count({ where }),
-    ])
+    ]);
 
     return res.json({
+      status: 'success',
       data: contratos,
-      meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
-    })
+      meta: {
+        total,
+        page: Number(page),
+        lastPage: Math.ceil(total / Number(limit)),
+      },
+    });
   },
 
-  // Mostrar detalhes de um contrato
+  /**
+   * GET /contratos/:id - Detalhes
+   */
   async show(req: Request, res: Response) {
-    const { id } = req.params
-    const idFormatado = Array.isArray(id) ? id[0] : id
+    const { id } = req.params;
+    const idFormatado = Array.isArray(id) ? id[0] : id;
 
     const contrato = await prisma.contrato.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
-      },
-      include: {
-        aluno: {
-          select: {
-            nome: true,
-            numeroMatricula: true,
-            turma: { select: { nome: true } },
-          },
-        },
-        responsavelFinanceiro: {
-          select: {
-            nome: true,
-            cpf: true,
-            email: true,
-          },
-        },
-        transacoes: {
-          select: {
-            id: true,
-            motivo: true,
-            valor: true,
-            data: true,
-          },
-          orderBy: { data: 'asc' },
-        },
-      },
-    })
-
-    if (!contrato) throw new AppError('Contrato não encontrado', 404)
-    return res.json(contrato)
-  },
-
-  // Criar um novo contrato
-  async create(req: Request, res: Response) {
-    const dados = req.body
-    const escolaId = req.user?.escolaId
-    const isStatus = dados.status ? dados.status : 'ATIVO'
-
-    const aluno = await prisma.aluno.findFirst({
-      where: withTenancy({ id: dados.alunoId }),
-    })
-    if (!aluno) throw new AppError('Aluno não encontrado', 404)
-
-    const responsavel = await prisma.responsavel.findFirst({
-      where: {
-        id: dados.responsavelFinanceiroId,
-        alunoId: dados.alunoId,
-        isResponsavelFinanceiro: true,
-      },
-    })
-    if (!responsavel) throw new AppError('Responsável financeiro não encontrado ou inválido', 404)
-
-    const contratoExiste = await prisma.contrato.findFirst({
-      where: {
-        alunoId: dados.alunoId,
-        status: isStatus,
-      },
-    })
-    if (contratoExiste) throw new AppError('Aluno já possui contrato ativo', 400)
-
-    const contrato = await prisma.contrato.create({
-      data: {
-        ...dados,
-        escolaId,
-        dataInicio: new Date(dados.dataInicio),
-        dataFim: dados.dataFim ? new Date(dados.dataFim) : null,
-      },
-      include: {
-        aluno: { select: { nome: true } },
-        responsavelFinanceiro: { select: { nome: true } },
-      },
-    })
-
-    return res.status(201).json(contrato)
-  },
-
-  // Atualizar um contrato
-  async update(req: Request, res: Response) {
-    const { id } = req.params
-    const dados = req.body
-    const idFormatado = Array.isArray(id) ? id[0] : id
-
-    const contratoExistente = await prisma.contrato.findFirst({
-      where: {
-        id: idFormatado,
-        aluno: { escolaId: req.user?.escolaId, deletedAt: null },
-      },
-    })
-    if (!contratoExistente) throw new AppError('Contrato não encontrado', 404)
-
-    const contrato = await prisma.contrato.update({
       where: { id: idFormatado },
-      data: {
-        ...dados,
-        dataFim: dados.dataFim ? new Date(dados.dataFim) : undefined,
-      },
       include: {
-        aluno: { select: { nome: true } },
-        responsavelFinanceiro: { select: { nome: true } },
-      },
-    })
+        aluno: true,
+        responsavelFinanceiro: true,
+        transacoes: { take: 5, orderBy: { data: 'desc' } }
+      }
+    });
 
-    return res.json(contrato)
+    if (!contrato) throw new AppError('Contrato não encontrado.', 404);
+
+    return res.json({ status: 'success', data: contrato });
+  },
+
+  /**
+   * POST /contratos - Criação vinculada
+   */
+  async create(req: Request, res: Response) {
+    const dados = req.body;
+
+    // Verifica se o aluno já possui um contrato (Unicidade @unique alunoId)
+    const contratoExistente = await prisma.contrato.findFirst({
+      where: { alunoId: dados.alunoId }
+    });
+
+    if (contratoExistente) {
+      throw new AppError('Este aluno já possui um contrato cadastrado. Use a atualização ou cancele o anterior.', 400);
+    }
+
+    const novoContrato = await prisma.contrato.create({
+      data: dados // escolaId injetado automaticamente
+    });
+
+    return res.status(201).json({ status: 'success', data: novoContrato });
+  },
+
+  /**
+     * PUT /contratos/:id - Atualização com Auditoria
+     */
+  async update(req: Request, res: Response) {
+    const { id } = req.params;
+    const idFormatado = Array.isArray(id) ? id[0] : id;
+    const dados = req.body;
+
+    const contrato = await prisma.contrato.findFirst({ where: { id: idFormatado } });
+    if (!contrato) throw new AppError('Contrato não encontrado.', 404);
+
+    const atualizado = await prisma.contrato.update({
+      where: { id: idFormatado },
+      data: dados
+    });
+
+    return res.json({
+      status: 'success',
+      message: 'Contrato atualizado com sucesso.',
+      data: atualizado
+    });
   },
 
   // Cancelar um contrato

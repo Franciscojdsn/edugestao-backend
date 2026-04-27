@@ -1,38 +1,35 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
-export const criarPagamentoSchema = z.object({
-  body: z.object({
-    alunoId: z.string().uuid('ID de aluno inválido'),
-    referencia: z.string().min(1, 'Referência é obrigatória'),
-    valorTotal: z.number().positive('Valor deve ser positivo'),
-    dataVencimento: z.coerce.date(),
-    mesReferencia: z.number().min(1).max(12),
-    anoReferencia: z.number().min(2025),
-  }),
-})
-
-export const atualizarPagamentoSchema = z.object({
-  params: z.object({ id: z.string().uuid() }),
-  body: z.object({
-    status: z.enum(['PENDENTE', 'PAGO', 'VENCIDO', 'CANCELADO']).optional(),
-    dataPagamento: z.coerce.date(),
-    valorPago: z.number().positive().optional(),
-  }),
-})
+const FormaPagamentoEnum = z.enum(['DINHEIRO', 'PIX', 'CARTAO', 'BOLETO', 'TRANSFERENCIA']);
+const StatusPagamentoEnum = z.enum(['PENDENTE', 'PAGO', 'VENCIDO', 'CANCELADO']);
 
 export const listarPagamentosSchema = z.object({
   query: z.object({
     alunoId: z.string().uuid().optional(),
-    status: z.enum(['PENDENTE', 'PAGO', 'VENCIDO', 'CANCELADO']).optional(),
-    page: z.string().optional().transform(Number).default(1),
-    limit: z.string().optional().transform(Number).default(20),
-  }).optional(),
-})
+    status: StatusPagamentoEnum.optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    busca: z.string().max(100).optional(), // Para buscar por nome do aluno ou referência
+  }),
+});
 
 export const registrarPagamentoSchema = z.object({
-  params: z.object({ id: z.string().uuid() }),
-  body: z.object({
-    formaPagamento: z.string().optional(),
-    observacoes: z.string().optional(),
+  params: z.object({
+    id: z.string().uuid('ID do boleto inválido'),
   }),
-})
+  body: z.object({
+    dataPagamento: z.coerce.date(),
+    valorPago: z.number().positive('O valor pago deve ser maior que zero').max(999999),
+    formaPagamento: FormaPagamentoEnum,
+    observacoes: z.string().max(500, 'Observação excede 500 caracteres').trim().optional().nullable(),
+  }),
+});
+
+export const estornarPagamentoSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('ID do boleto inválido'),
+  }),
+  body: z.object({
+    motivo: z.string().min(5, 'Explique o motivo do estorno').max(255).trim(),
+  }),
+});

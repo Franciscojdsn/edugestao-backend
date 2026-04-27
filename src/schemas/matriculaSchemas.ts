@@ -1,59 +1,63 @@
 import { z } from 'zod'
 
+const normalize = (val: string) => val.replace(/\D/g, '');
+
 export const iniciarMatriculaSchema = z.object({
   body: z.object({
-    turmaId: z.string().uuid("O ID da turma deve ser um UUID válido."),
-    anoLetivo: z.number().int().min(2024),
+    turmaId: z.string().uuid("Selecione uma turma válida."),
+    anoLetivo: z.number().int().min(2026),
 
-    // Dados Pessoais do Aluno
-    nomeAluno: z.string().min(3, "Nome muito curto"),
-    cpf: z.string().optional().nullable(),
-    dataNascimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato inválido (YYYY-MM-DD)"),
+    // Dados do Aluno
+    nomeAluno: z.string().min(3, "Nome muito curto").max(100, "Nome muito longo").trim(),
+    cpf: z.string().transform(normalize).refine(v => v.length === 11 || v === '', "CPF inválido").optional().nullable(),
+    dataNascimento: z.coerce.date()
+      .refine(date => date <= new Date(), "Data de nascimento não pode ser no futuro")
+      .catch(() => new Date()),
     genero: z.enum(['MASCULINO', 'FEMININO', 'OUTRO']),
 
-    // Novos Campos: Saúde
-    numeroSus: z.string().optional().nullable(),
+    // Saúde
+    numeroSus: z.string().transform(normalize).refine(v => v.length === 15 || v === '', "Cartão SUS deve ter 15 dígitos").optional().nullable(),
     planoSaude: z.boolean().default(false),
-    hospital: z.string().optional().nullable(),
-    matriculaPlano: z.string().optional().nullable(),
+    hospital: z.string().max(100, "Nome do hospital muito longo").trim().optional().nullable(),
+    alergias: z.string().max(500, "Descrição de alergias muito longa").trim().optional().nullable(),
+    medicamentos: z.string().max(500, "Descrição de medicamentos muito longa").trim().optional().nullable(),
 
-    // Novo Campo: Endereço (Será isolado no DB)
+    // Endereço (Obrigatório no Passo 1 para localização)
     endereco: z.object({
-      cep: z.string().min(8, "CEP inválido"),
-      rua: z.string().min(2, "Rua é obrigatória"),
-      numero: z.string().min(1, "Número é obrigatório"),
-      complemento: z.string().optional().nullable(),
-      bairro: z.string().min(2, "Bairro é obrigatório"),
-      cidade: z.string().min(2, "Cidade é obrigatória"),
-      estado: z.string().length(2, "Use a sigla do estado (ex: SP)")
-    }).optional().nullable() // Opcional nesta etapa, mas recomendado
-  }),
-})
+      cep: z.string().transform(normalize).refine(v => v.length === 8, "CEP inválido"),
+      rua: z.string().min(3, "Rua obrigatória").max(150, "Rua muito longa").trim(),
+      numero: z.string().min(1, "Número obrigatório").max(20, "Número muito longo").trim(),
+      bairro: z.string().min(2, "Bairro obrigatório").max(100, "Bairro muito longo").trim(),
+      cidade: z.string().min(2, "Cidade obrigatória").max(100, "Cidade muito longa").trim(),
+      uf: z.string().length(2, "Use a sigla (Ex: PE)").transform(v => v.toUpperCase()),
+      complemento: z.string().max(100, "Complemento muito longo").trim().optional().nullable()
+    })
+  })
+});
 
 export const adicionarResponsavelSchema = z.object({
   params: z.object({
-    matriculaId: z.string().uuid("ID de matrícula deve ser um UUID válido."),
+    matriculaId: z.string().uuid("ID de matrícula inválido."),
   }),
   body: z.object({
-    nome: z.string().min(3, "O nome deve ter no mínimo 3 caracteres."),
-    cpf: z.string().min(11, "CPF inválido."), // Obrigatório para validação de contrato futuro
-    rg: z.string().optional().nullable(),
-    telefone1: z.string().min(10, "Telefone principal inválido."),
-    telefone2: z.string().optional().nullable(),
-    email: z.string().email("E-mail inválido.").optional().nullable(),
+    nome: z.string().min(3, "Nome muito curto").max(100, "Nome muito longo").trim(),
+    cpf: z.string().transform(normalize).refine(v => v.length === 11, "CPF deve ter 11 dígitos"),
+    rg: z.string().min(5, "RG muito curto").max(20, "RG muito longo").trim().optional().nullable(),
+    telefone1: z.string().min(10, "Telefone inválido").max(13, "Telefone muito longo").transform(normalize),
+    telefone2: z.string().min(10, "Telefone inválido").max(13, "Telefone muito longo").transform(normalize).optional().nullable(),
+    email: z.string().email("E-mail inválido").max(100, "E-mail muito longo").toLowerCase().trim(),
     tipo: z.enum(['PAI', 'MAE', 'AVO', 'TUTOR', 'OUTRO']),
-    isResponsavelFinanceiro: z.boolean(),
-    usarEnderecoDoAluno: z.boolean().optional(),
+    isResponsavelFinanceiro: z.boolean().default(false),
+    usarEnderecoDoAluno: z.boolean().default(true),
 
-    // O endereço só é validado se usarEnderecoDoAluno for false
     endereco: z.object({
-      cep: z.string().min(8).optional().nullable(),
-      rua: z.string().min(2).optional().nullable(),
-      numero: z.string().min(1).optional().nullable(),
-      bairro: z.string().min(2).optional().nullable(),
-      cidade: z.string().min(2).optional().nullable(),
-      estado: z.string().length(2).optional().nullable(),
-      complemento: z.string().optional().nullable(),
+      cep: z.string().transform(normalize).refine(v => v.length === 8, "CEP deve ter 8 dígitos").optional().nullable(),
+      rua: z.string().min(3, "Rua muito curta").max(150, "Rua muito longa").trim().optional().nullable(),
+      numero: z.string().min(1, "Número inválido").max(20, "Número muito longo").trim().optional().nullable(),
+      bairro: z.string().min(2, "Bairro muito curto").max(100, "Bairro muito longo").trim().optional().nullable(),
+      cidade: z.string().min(2, "Cidade muito curta").max(100, "Cidade muito longa").trim().optional().nullable(),
+      estado: z.string().length(2).toUpperCase().optional().nullable(),
+      complemento: z.string().max(100, "Complemento muito longo").trim().optional().nullable(),
     }).optional().nullable()
   }).refine((data) => {
     // Validação condicional: se não usar o do aluno, o endereço próprio deve estar preenchido
@@ -70,36 +74,20 @@ export const adicionarResponsavelSchema = z.object({
 
 export const finalizarMatriculaSchema = z.object({
   params: z.object({
-    matriculaId: z.string().uuid("ID da matrícula deve ser um UUID válido."),
+    matriculaId: z.string().uuid("ID da matrícula inválido."),
   }),
   body: z.object({
-    valorMatricula: z.number().min(0),
-    descontoMatricula: z.number().min(0),
-    valorMensalidadeBase: z.number().positive("A mensalidade base deve ser maior que zero."),
-    descontoMensalidade: z.number().min(0),
-    atividadesExtrasIds: z.array(z.string().uuid()).optional().default([]), // Nosso carrinho
-    diaVencimento: z.number().int().min(1).max(31),
-    qtdParcelas: z.number().int().min(1).max(12, "O máximo de parcelas por contrato é 12."),
+    // Valores monetários: garantimos que são números positivos
+    valorMatricula: z.number().min(0).max(10000),
+    descontoMatricula: z.number().min(0).max(1000),
+    valorMensalidadeBase: z.number().positive("Mensalidade base deve ser maior que zero.").max(10000),
+    descontoMensalidade: z.number().min(0).max(1000),
+    
+    // Configuração de Parcelas
+    atividadesExtrasIds: z.array(z.string().uuid()).optional().default([]),
+    diaVencimento: z.number().int().min(1).max(28, "Para segurança de meses curtos, use até dia 28"), 
+    qtdParcelas: z.number().int().min(1).max(11),
+    
     responsavelFinanceiroId: z.string().uuid("Responsável financeiro é obrigatório."),
-  }),
-})
-
-export const listarMatriculasSchema = z.object({
-  query: z.object({
-    status: z.enum(['PENDENTE', 'EM_ANALISE', 'APROVADA', 'REJEITADA', 'CANCELADA']).optional(),
-    anoLetivo: z.string().regex(/^\d{4}$/).transform(Number).optional(),
-    turmaId: z.string().uuid().optional(),
-    page: z.string().regex(/^\d+$/).transform(Number).optional(),
-    limit: z.string().regex(/^\d+$/).transform(Number).optional(),
-  }).optional(),
-})
-
-export const atualizarEtapaSchema = z.object({
-  params: z.object({
-    matriculaId: z.string().uuid(),
-  }),
-  body: z.object({
-    etapa: z.enum(['DADOS_PESSOAIS', 'DOCUMENTOS', 'RESPONSAVEIS', 'CONTRATO', 'PAGAMENTO', 'FINALIZADA']),
-    concluida: z.boolean(),
-  }),
-})
+  })
+});

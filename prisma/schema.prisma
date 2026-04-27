@@ -2,56 +2,56 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider   = "prisma-client-js"
-  engineType = "binary"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  // NÃO coloque url aqui no Prisma 7+
-  // A URL vai no prisma.config.ts
 }
 
 // ============================================
-// 1. ESCOLA (Multi-tenancy)
+// 1. ESCOLA (Root Tenant)
 // ============================================
 model Escola {
   id       String  @id @default(uuid())
-  nome     String
-  cnpj     String  @unique
-  telefone String?
-  email    String?
-  logo     String?
+  nome     String  @db.VarChar(150)
+  cnpj     String  @unique @db.VarChar(14) // Armazenar apenas números
+  telefone String? @db.VarChar(15)
+  email    String? @db.VarChar(100)
+  logo     String? @db.VarChar(255) // URL da logo
 
-  // Configurações padrão
+  // Configurações padrão (Semente financeira)
   mensalidadePadrao Decimal @default(0) @db.Decimal(10, 2)
-  diaVencimento     Int     @default(10) // Dia do mês para vencimento
+  diaVencimento     Int     @default(10)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relacionamentos
-  usuarios          Usuario[]
-  alunos            Aluno[]
-  funcionarios      Funcionario[]
-  turmas            Turma[]
-  disciplinas       Disciplina[]
-  transacoes        Transacao[]
-  atividadesExtra   AtividadeExtra[]
-  comunicados       Comunicado[]
-  matriculas        Matricula[]
-  rematriculas      Rematricula[]
-  ocorrencias       Ocorrencia[]
-  eventos           Evento[]
-  logAuditorias     LogAuditoria[]
-  lancamentos       Lancamento[]
-  frequencias       Frequencia[]
-  gradeHorarias     GradeHoraria[]
-  cronogramaProva   CronogramaProva[]
-  contratoes        Contrato[]
-  boletos           Boletos[]
-  responsavels      Responsavel[]
-  pagamentoSalarios PagamentoSalario[]
+  // Relacionamentos - Padronização de nomes
+  usuarios             Usuario[]
+  alunos               Aluno[]
+  funcionarios         Funcionario[]
+  turmas               Turma[]
+  disciplinas          Disciplina[]
+  transacoes           Transacao[]
+  atividadesExtra      AtividadeExtra[]
+  comunicados          Comunicado[]
+  matriculas           Matricula[]
+  rematriculas         Rematricula[]
+  ocorrencias          Ocorrencia[]
+  eventos              Evento[]
+  logAuditorias        LogAuditoria[]
+  lancamentos          Lancamento[]
+  frequencias          Frequencia[]
+  gradeHorarias        GradeHoraria[]
+  cronogramaProva      CronogramaProva[]
+  contratos            Contrato[] // Corrigido de contratoes
+  boletos              Boletos[]
+  responsaveis         Responsavel[] // Corrigido de responsavels
+  enderecos            Endereco[]
+  alunoAtividadeExtras AlunoAtividadeExtra[]
+  pagamentoSalarios    PagamentoSalario[]
+  turmaProfessors      TurmaProfessor[]
 
   @@map("escolas")
 }
@@ -61,9 +61,9 @@ model Escola {
 // ============================================
 model Usuario {
   id    String      @id @default(uuid())
-  email String      @unique
-  senha String // Hash bcrypt
-  nome  String
+  email String      @unique @db.VarChar(150)
+  senha String      @db.VarChar(255) // Hash bcrypt
+  nome  String      @db.VarChar(100)
   role  RoleUsuario @default(SECRETARIA)
 
   escolaId String
@@ -87,17 +87,21 @@ enum RoleUsuario {
 }
 
 // ============================================
-// 3. ENDEREÇO (Compartilhado)
+// 3. ENDEREÇO (Isolado por Tenant)
 // ============================================
 model Endereco {
   id          String  @id @default(uuid())
-  rua         String
-  numero      String
-  complemento String?
-  bairro      String
-  cidade      String
+  rua         String  @db.VarChar(150)
+  numero      String  @db.VarChar(20)
+  complemento String? @db.VarChar(100)
+  bairro      String  @db.VarChar(100)
+  cidade      String  @db.VarChar(100)
   estado      String  @db.Char(2)
-  cep         String
+  cep         String  @db.VarChar(8) // Armazenar apenas os números
+
+  // --- Multi-tenancy Absoluto ---
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -107,6 +111,7 @@ model Endereco {
   responsaveis Responsavel[]
   funcionarios Funcionario[]
 
+  @@index([escolaId]) // Index vital para performance das buscas
   @@map("enderecos")
 }
 
@@ -115,17 +120,22 @@ model Endereco {
 // ============================================
 model Aluno {
   id             String    @id @default(uuid())
-  nome           String
-  cpf            String?   @unique
-  dataNascimento DateTime?
-  naturalidade   String?
-  genero         String?
-  foto           String? // URL da foto
+  nome           String    @db.VarChar(100)
+  cpf            String?   @db.VarChar(11)
+  dataNascimento DateTime? @db.Date
+  naturalidade   String?   @db.VarChar(50)
+  genero         String?   @db.VarChar(20)
+  foto           String?   @db.VarChar(255) // URL da foto do aluno
 
   // Dados de matrícula
-  numeroMatricula String   @unique
+  numeroMatricula String   @db.VarChar(7) // Ex: "26.0001"
   dataMatricula   DateTime @default(now())
-  turno           Turno?
+
+  // Campos de Saúde (Etapa 1)
+  numeroSus  String? @db.VarChar(15)
+  planoSaude Boolean @default(false)
+  hospital   String? @db.VarChar(50)
+  alergias   String? @db.VarChar(100)
 
   // Relacionamentos
   escolaId String
@@ -138,7 +148,7 @@ model Aluno {
   turma   Turma?  @relation(fields: [turmaId], references: [id], onDelete: SetNull)
 
   // Soft delete
-  deletedAt DateTime?
+  deletedAt DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -156,17 +166,12 @@ model Aluno {
   ocorrencias     Ocorrencia[]
   lancamentos     Lancamento[]
 
+  @@unique([cpf, escolaId]) // Unicidade restrita a cada escola
+  @@unique([numeroMatricula, escolaId])
   @@index([escolaId])
   @@index([turmaId])
   @@index([deletedAt])
   @@map("alunos")
-}
-
-enum Turno {
-  MATUTINO
-  VESPERTINO
-  NOTURNO
-  INTEGRAL
 }
 
 // ============================================
@@ -174,13 +179,13 @@ enum Turno {
 // ============================================
 model Responsavel {
   id             String    @id @default(uuid()) // UUID v4 Obrigatório
-  nome           String
-  cpf            String? // Essencial para emissão de boletos/contratos
-  rg             String?
-  dataNascimento DateTime?
-  telefone1      String?
-  telefone2      String? // Segundo telefone solicitado
-  email          String?
+  nome           String    @db.VarChar(100)
+  cpf            String?   @db.VarChar(11) // Essencial para emissão de boletos/contratos
+  rg             String?   @db.VarChar(20)
+  dataNascimento DateTime? @db.Date
+  telefone1      String?   @db.VarChar(15)
+  telefone2      String?   @db.VarChar(15) // Segundo telefone solicitado
+  email          String?   @db.VarChar(70)
 
   // --- Regras de Negócio ---
   tipo                    TipoResponsavel
@@ -207,9 +212,11 @@ model Responsavel {
   updatedAt  DateTime    @updatedAt
   transacaos Transacao[]
 
+  @@unique([cpf, alunoId, escolaId])
   @@index([alunoId])
   @@index([escolaId])
   @@index([cpf]) // Indexado para buscas rápidas de histórico familiar
+  @@index([isResponsavelFinanceiro])
   @@map("responsaveis")
 }
 
@@ -238,7 +245,7 @@ model Contrato {
   diaVencimento      Int       @default(10)
   quantidadeParcelas Int       @default(12)
   dataInicio         DateTime  @default(now())
-  dataFim            DateTime?
+  dataFim            DateTime? @db.Date
 
   status StatusContrato @default(ATIVO)
   ativo  Boolean        @default(true)
@@ -276,13 +283,13 @@ enum StatusContrato {
 // ============================================
 model AtividadeExtra {
   id        String  @id @default(uuid())
-  nome      String // Ex: "Futebol", "Inglês"
-  descricao String?
+  nome      String  @db.VarChar(100)
+  descricao String? @db.VarChar(100)
   valor     Decimal @db.Decimal(10, 2)
 
-  diaAula          DiaAula? // ← NOVO
-  horario          String? // ← NOVO (formato: "14:30")
-  capacidadeMaxima Int? // ← NOVO
+  diaAula          DiaAula?
+  horario          String?  @db.VarChar(4) // Ex: "14:30" - Bloqueio contra injeção de texto
+  capacidadeMaxima Int?     @db.SmallInt
 
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
@@ -290,7 +297,6 @@ model AtividadeExtra {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relacionamentos
   alunos AlunoAtividadeExtra[]
 
   @@index([escolaId])
@@ -304,6 +310,8 @@ enum DiaAula {
   QUINTA
   SEXTA
   SABADO
+  DOMINGO
+  TODOS
 }
 
 // Tabela intermediária N:N
@@ -316,6 +324,10 @@ model AlunoAtividadeExtra {
   atividadeExtraId String
   atividadeExtra   AtividadeExtra @relation(fields: [atividadeExtraId], references: [id], onDelete: Cascade)
 
+  // A PROTEÇÃO DA EXTENSÃO (Obrigatório)
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+
   dataInicio DateTime  @default(now())
   dataFim    DateTime?
   ativo      Boolean   @default(true)
@@ -323,52 +335,53 @@ model AlunoAtividadeExtra {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([alunoId, atividadeExtraId])
+  @@unique([alunoId, atividadeExtraId, escolaId]) // Isolamento total
   @@index([alunoId])
   @@index([atividadeExtraId])
+  @@index([escolaId])
   @@map("alunos_atividades_extra")
 }
 
 // ============================================
-// 8. Boletos (Parcelas de Mensalidade)
+// 8. BOLETOS (Livro de Recebíveis)
 // ============================================
 model Boletos {
   id String @id @default(uuid())
 
   // Identificação
-  referencia    String // Ex: "Janeiro/2026", "Fevereiro/2026"
-  mesReferencia Int // 1-12
-  anoReferencia Int // 2026
+  referencia    String @db.VarChar(50) // Ex: "Janeiro/2026"
+  mesReferencia Int    @db.SmallInt
+  anoReferencia Int    @db.SmallInt
 
-  // Valores
-  valorBase       Decimal  @db.Decimal(10, 2) // Mensalidade
-  valorAtividades Decimal  @default(0) @db.Decimal(10, 2) // Soma das atividades extra
-  valorTotal      Decimal  @db.Decimal(10, 2) // Base + Atividades
-  valorPago       Decimal? @db.Decimal(10, 2) // Pode ter juros/multa
+  // Valores (A precisão Decimal 10,2 é inviolável)
+  valorBase       Decimal  @db.Decimal(10, 2)
+  valorAtividades Decimal  @default(0) @db.Decimal(10, 2)
+  valorTotal      Decimal  @db.Decimal(10, 2)
+  valorPago       Decimal? @db.Decimal(10, 2)
 
   // Datas
-  dataVencimento DateTime
-  dataPagamento  DateTime?
+  dataVencimento DateTime  @db.Date
+  dataPagamento  DateTime? @db.Date
 
   // Status
   status StatusPagamento @default(PENDENTE)
 
   // Informações adicionais
-  formaPagamento FormaPagamento? // ← NOVO
-  comprovante    String? // ← NOVO
-  observacoes    String? // ← NOVO
-  descricao      String? // ← NOVO
+  formaPagamento FormaPagamento?
+  comprovante    String?         @db.VarChar(500) // Aumentado para suportar URLs assinadas longas (S3/CloudFront)
+  observacoes    String?         @db.VarChar(500)
+  descricao      String?         @db.VarChar(255)
 
   // Integração Asaas
-  asaasId   String? @unique // ID do pagamento no Asaas
-  boletoUrl String? // URL do boleto
-  pixQrCode String? // QR Code PIX
+  asaasId   String? @unique @db.VarChar(100)
+  boletoUrl String? @db.VarChar(500)
+  pixQrCode String? @db.Text // Text é melhor para QR Code Base64 longo
 
   // Relacionamentos
   alunoId String
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
-  transacaoId String?    @unique // Quando pago, gera transação
+  transacaoId String?    @unique
   transacao   Transacao? @relation(fields: [transacaoId], references: [id], onDelete: SetNull)
 
   escolaId String
@@ -376,8 +389,10 @@ model Boletos {
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  deletedAt DateTime? // Soft delete
+  deletedAt DateTime?
 
+  @@unique([alunoId, referencia, escolaId]) // Impede a geração de boletos duplicados para o mesmo aluno/período
+  @@index([escolaId]) // Index obrigatório para Multi-tenant
   @@index([alunoId])
   @@index([status])
   @@index([dataVencimento])
@@ -406,11 +421,11 @@ model Transacao {
   id String @id @default(uuid())
 
   tipo   TipoTransacao
-  motivo String // Ex: "Mensalidade - Janeiro", "Salário - Profª Maria"
+  motivo String        @db.VarChar(100) // Ex: "Mensalidade - Janeiro", "Salário - Profª Maria"
   valor  Decimal       @db.Decimal(10, 2)
   data   DateTime      @default(now())
 
-  observacao String?
+  observacao String? @db.VarChar(255)
 
   // Relacionamentos
   escolaId String
@@ -426,7 +441,7 @@ model Transacao {
   contrato   Contrato? @relation(fields: [contratoId], references: [id])
 
   // Soft delete (importante para auditoria)
-  deletedAt DateTime?
+  deletedAt DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -485,37 +500,50 @@ enum AcaoHistory {
 }
 
 // ============================================
-// 11. TURMA
+// 11. TURMA (Coração Pedagógico)
 // ============================================
 model Turma {
   id               String @id @default(uuid())
-  nome             String // Ex: "Maternal II", "1º Ano A"
+  nome             String @db.VarChar(100) // Limite de segurança
   turno            Turno
-  anoLetivo        Int // Ex: 2026
+  anoLetivo        Int    @db.SmallInt
   capacidadeMaxima Int    @default(30)
 
+  // Isolamento Multi-tenant
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  deletedAt DateTime? @db.Date
 
-  // Relacionamentos
-  alunos          Aluno[]
-  professores     TurmaProfessor[]
-  disciplinas     TurmaDisciplina[]
-  notas           Nota[]
-  frequencias     Frequencia[]
-  comunicados     Comunicado[]
-  matriculas      Matricula[]
-  eventos         Evento[]
-  gradeHorarias   GradeHoraria[]
-  cronogramaProva CronogramaProva[]
+  // Suporte ao Soft Delete
 
+  // Relacionamentos omitidos para brevidade...
+  alunos           Aluno[]
+  turmaProfessors  TurmaProfessor[]
+  turmaDisciplinas TurmaDisciplina[]
+  notas            Nota[]
+  frequencias      Frequencia[]
+  comunicados      Comunicado[]
+  matriculas       Matricula[]
+  eventos          Evento[]
+  gradeHorarias    GradeHoraria[]
+  cronogramaProva  CronogramaProva[]
+
+  // TRAVA DE INTEGRIDADE: Impede a criação de turmas duplicadas no mesmo ano/turno
+  @@unique([nome, anoLetivo, turno, escolaId])
   @@index([escolaId])
   @@index([anoLetivo])
+  @@index([deletedAt]) // Fundamental para queries com soft delete
   @@map("turmas")
+}
+
+enum Turno {
+  MANHA
+  TARDE
+  NOITE
+  INTEGRAL
 }
 
 // ============================================
@@ -523,33 +551,28 @@ model Turma {
 // ============================================
 model Funcionario {
   id             String    @id @default(uuid())
-  nome           String
-  cpf            String    @unique
-  rg             String?
+  nome           String    @db.VarChar(100)
+  cpf            String    @db.VarChar(11) // REMOVIDO @unique global
+  rg             String?   @db.VarChar(20)
   dataNascimento DateTime?
-  telefone       String?
-  email          String?
-  foto           String?
+  telefone       String?   @db.VarChar(15)
+  email          String?   @db.VarChar(100)
+  foto           String?   @db.VarChar(255)
 
-  // Dados profissionais
-  cargo        CargoFuncionario
-  dataAdmissao DateTime         @default(now())
-  dataDemissao DateTime?
-  salarioBase  Decimal          @db.Decimal(10, 2)
-
+  cargo             CargoFuncionario
+  dataAdmissao      DateTime          @default(now())
+  dataDemissao      DateTime?
+  salarioBase       Decimal           @db.Decimal(10, 2)
   statusFuncionario StatusFuncionario @default(ATIVO)
 
-  escolaId String
-  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
-
+  escolaId   String
+  escola     Escola    @relation(fields: [escolaId], references: [id], onDelete: Cascade)
   enderecoId String?
   endereco   Endereco? @relation(fields: [enderecoId], references: [id], onDelete: SetNull)
 
-  // Soft delete
   deletedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relacionamentos
   turmas                TurmaProfessor[]
@@ -560,6 +583,7 @@ model Funcionario {
   pagamentoSalarios     PagamentoSalario[]
   dadosBancarios        DadosBancarios?
 
+  @@unique([cpf, escolaId]) // A PROTEÇÃO MULTI-TENANT
   @@index([escolaId])
   @@index([cargo])
   @@index([deletedAt])
@@ -623,26 +647,21 @@ model PagamentoSalario {
 
 // Tabela intermediária 1:1 Dados bancários do funcionário
 model DadosBancarios {
-  id String @id @default(uuid())
-
-  // Detalhes da Conta
-  banco         String? // Nome ou Código do Banco (Ex: 001 - Banco do Brasil)
-  agencia       String?
-  agenciaDigito String?
-  conta         String?
-  contaDigito   String?
+  id            String    @id @default(uuid())
+  banco         String?   @db.VarChar(50)
+  agencia       String?   @db.VarChar(10)
+  agenciaDigito String?   @db.VarChar(2)
+  conta         String?   @db.VarChar(20)
+  contaDigito   String?   @db.VarChar(2)
   tipoConta     TipoConta @default(CORRENTE)
 
-  // Detalhes do PIX
   tipoChavePix TipoChavePix?
-  chavePix     String?
+  chavePix     String?       @db.VarChar(100)
 
-  // Relacionamento
-  funcionarioId String      @unique // Um conjunto de dados bancários por funcionário
+  funcionarioId String      @unique
   funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
 
-  escolaId String
-
+  escolaId  String
   updatedAt DateTime @updatedAt
 
   @@index([escolaId])
@@ -666,23 +685,24 @@ enum TipoChavePix {
 
 // Tabela intermediária N:N (Turma - Professor)
 model TurmaProfessor {
-  id String @id @default(uuid())
-
-  turmaId String
-  turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Cascade)
-
+  id          String      @id @default(uuid())
+  turmaId     String
+  turma       Turma       @relation(fields: [turmaId], references: [id], onDelete: Cascade)
   professorId String
   professor   Funcionario @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  isPrincipal Boolean     @default(true)
 
-  // Professor principal ou auxiliar
-  isPrincipal Boolean @default(true)
+  // A PROTEÇÃO DA EXTENSÃO (Obrigatório)
+  escolaId String
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([turmaId, professorId])
+  @@unique([turmaId, professorId, escolaId]) // Isolamento Total
   @@index([turmaId])
   @@index([professorId])
+  @@index([escolaId])
   @@map("turmas_professores")
 }
 
@@ -1076,23 +1096,24 @@ enum TipoEvento {
 }
 
 // ============================================
-// 21. logAuditoria 
+// 21. LOG AUDITORIA (Trilha Forense)
 // ============================================
-
 model LogAuditoria {
-  id           String @id @default(uuid())
-  entidade     String
-  entidadeId   String
-  acao         String
-  dadosAntigos Json?
-  dadosNovos   Json?
+  id         String @id @default(uuid())
+  entidade   String @db.VarChar(100)
+  entidadeId String @db.VarChar(100)
+  acao       String @db.VarChar(100)
 
-  usuarioId String?
+  // JSONs mantidos, pois registram snapshots dinâmicos
+  dadosAntigos Json? @db.Json
+  dadosNovos   Json? @db.Json
+
+  usuarioId String? @db.VarChar(36) // Não fazemos FK direta para manter o log mesmo se o user for deletado
 
   escolaId String
-  escola   Escola @relation(fields: [escolaId], references: [id])
+  escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  ip        String?
+  ip        String?  @db.VarChar(45) // Suporte para IPv6 longo
   createdAt DateTime @default(now())
 
   @@index([escolaId])
@@ -1104,38 +1125,39 @@ model LogAuditoria {
 // ============================================
 // 22. LANÇAMENTOS (Gestão de Entradas e Saídas Avulsas)
 // ============================================
-
 model Lancamento {
   id        String        @id @default(uuid())
-  descricao String // Ex: "Venda de Fardamento" ou "Manutenção Ar-condicionado"
-  tipo      TipoTransacao // ENTRADA ou SAIDA (Reutilizando seu Enum existente)
-  categoria String // Ex: 'VENDA', 'MATERIAL', 'INFRAESTRUTURA'
+  descricao String        @db.VarChar(255) // TRAVA DE SEGURANÇA
+  tipo      TipoTransacao // ENTRADA ou SAIDA
+  categoria String        @db.VarChar(100) // TRAVA DE SEGURANÇA
   valor     Decimal       @db.Decimal(10, 2)
 
-  dataVencimento DateTime // Quando o dinheiro deve entrar ou sair
-  dataLiquidacao DateTime? // Quando efetivamente foi pago/recebido
-  status         StatusPagamento @default(PENDENTE) // PENDENTE, PAGO, CANCELADO
+  dataVencimento DateTime        @db.Date
+  dataLiquidacao DateTime?       @db.Date
+  status         StatusPagamento @default(PENDENTE)
 
-  // Relacionamentos
+  // O Isolamento
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  // Opcional: Se for uma entrada de um Aluno específico ou saída para um Funcionário
+  // Vínculos Opcionais
   alunoId       String?
   aluno         Aluno?       @relation(fields: [alunoId], references: [id], onDelete: SetNull)
   funcionarioId String?
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  responsavelId String?
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
 
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  deletedAt        DateTime?
-  responsavel      Responsavel?      @relation(fields: [responsavelId], references: [id])
-  responsavelId    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
   pagamentoSalario PagamentoSalario?
 
   @@index([escolaId])
   @@index([tipo])
   @@index([status])
+  @@index([dataVencimento]) // Index vital para dashboards financeiros
   @@map("lancamentos")
 }
 

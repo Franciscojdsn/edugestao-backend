@@ -2,6 +2,8 @@ import { Request, Response } from 'express'
 import { prisma } from '../config/prisma'
 import { AppError } from '../middlewares/errorHandler'
 import { withEscolaId } from '../utils/prismaHelpers'
+import { getRequiredEscolaId } from '../utils/context'
+import { logger } from '../utils/logger'
 
 export const matriculaController = {
   /**
@@ -10,74 +12,77 @@ export const matriculaController = {
    */
   async iniciar(req: Request, res: Response) {
     const dados = req.body;
-    const escolaId = req.user?.escolaId as string;
+    const escolaId = getRequiredEscolaId(); // Validação de contexto obrigatória
 
-    if (!escolaId) throw new AppError('Escola não identificada', 403);
-
-    const turma = await prisma.turma.findFirst({
-      where: withEscolaId({ id: dados.turmaId }),
+    // 1. Verificação de Turma (A extensão do Prisma filtrará por escolaId automaticamente)
+    const turma = await prisma.turma.findUnique({
+      where: { id: dados.turmaId }
     });
-    if (!turma) throw new AppError('Turma não encontrada', 404);
 
-    // Geração de Matrícula
+    if (!turma) throw new AppError('Turma não encontrada ou não pertence à sua escola.', 404);
+
+    // 2. Geração Segura do Número de Matrícula (Padrão: ANO + RANDOM 4)
     const anoAbreviado = new Date().getFullYear().toString().slice(-2);
     let numeroMatricula = '';
-    let matriculaExiste = true;
     let tentativas = 0;
+    let disponivel = false;
 
-    while (matriculaExiste && tentativas < 5) {
+    while (!disponivel && tentativas < 5) {
       const random4 = Math.floor(1000 + Math.random() * 9000);
       numeroMatricula = `${anoAbreviado}.${random4}`;
+
       const conflito = await prisma.aluno.findFirst({
-        where: { escolaId, numeroMatricula }
+        where: { numeroMatricula } // A extensão injeta o escolaId aqui
       });
-      if (!conflito) matriculaExiste = false;
+
+      if (!conflito) disponivel = true;
       else tentativas++;
     }
 
-    // TRANSAÇÃO BLINDADA
+    if (!disponivel) throw new AppError('Falha ao gerar número de matrícula único. Tente novamente.', 500);
+
+    // 3. EXECUÇÃO ATÔMICA DA TRANSAÇÃO
     const resultado = await prisma.$transaction(async (tx) => {
-      // 1. Cria Endereço (Limpando o Estado para 2 caracteres)
+
+      // A. Criação do Endereço (Sanitizado)
       const novoEndereco = await tx.endereco.create({
         data: {
-          cep: String(dados.endereco.cep).replace(/\D/g, ''),
-          rua: String(dados.endereco.rua),
+          cep: dados.endereco.cep.replace(/\D/g, ''),
+          rua: dados.endereco.rua.trim(),
           numero: String(dados.endereco.numero),
-          complemento: dados.endereco.complemento || null,
-          bairro: String(dados.endereco.bairro),
-          cidade: String(dados.endereco.cidade),
-          // 🔥 GARANTIA ARQUITETURAL: Pega apenas os 2 primeiros caracteres
-          estado: String(dados.endereco.estado).substring(0, 2).toUpperCase(),
+          complemento: dados.endereco.complemento?.trim() || null,
+          bairro: dados.endereco.bairro.trim(),
+          cidade: dados.endereco.cidade.trim(),
+          estado: dados.endereco.uf.substring(0, 2).toUpperCase(),
         }
       });
 
-      // 2. Cria Aluno vinculado
+      // B. Criação do Aluno (Multi-tenancy via Extensão)
       const novoAluno = await tx.aluno.create({
         data: {
-          nome: dados.nomeAluno,
-          cpf: dados.cpf ? String(dados.cpf).replace(/\D/g, "") : null,
+          escolaId,
+          nome: dados.nomeAluno.trim(),
+          cpf: dados.cpf ? dados.cpf.replace(/\D/g, "") : null,
           dataNascimento: new Date(dados.dataNascimento),
           genero: dados.genero,
           numeroMatricula,
           turmaId: dados.turmaId,
-          escolaId,
-          enderecoId: novoEndereco.id, // Vínculo essencial
-          // Saúde
-          /**
-          numeroSus: dados.numeroSus || null,
+          enderecoId: novoEndereco.id,
+
+          // Dados de Saúde - Integrados
+          numeroSus: dados.numeroSus?.replace(/\D/g, '') || null,
           planoSaude: Boolean(dados.planoSaude),
-          hospital: dados.hospital || null,
-          matriculaPlano: dados.matriculaPlano || null,
-          */
+          hospital: dados.hospital?.trim() || null,
+          alergias: dados.alergias?.trim() || null,
         }
       });
 
-      // 3. Cria Matrícula
+      // C. Registro Inicial do Wizard de Matrícula
       const novaMatricula = await tx.matricula.create({
         data: {
           alunoId: novoAluno.id,
-          turmaId: dados.turmaId,
           escolaId,
+          turmaId: dados.turmaId,
           anoLetivo: Number(dados.anoLetivo),
           status: 'PENDENTE',
           etapaAtual: 'RESPONSAVEIS',
@@ -87,13 +92,14 @@ export const matriculaController = {
 
       return {
         matriculaId: novaMatricula.id,
-        enderecoId: novoEndereco.id
+        alunoId: novoAluno.id
       };
     });
 
     return res.status(201).json({
-      message: 'Passo 1 concluído!',
-      ...resultado
+      status: 'success',
+      message: 'Etapa 1: Dados do aluno processados com sucesso.',
+      data: resultado
     });
   },
 
@@ -152,133 +158,85 @@ export const matriculaController = {
    */
   async finalizar(req: Request, res: Response) {
     const { matriculaId } = req.params;
-    const {
-      valorMatricula,
-      descontoMatricula,   // Descomente assim que rodar o prisma db push
-      valorMensalidadeBase,
-      descontoMensalidade,
-      atividadesExtrasIds,
-      diaVencimento,
-      qtdParcelas,
-      responsavelFinanceiroId
-    } = req.body;
+    const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId;
+    const dados = req.body;
+    const escolaId = getRequiredEscolaId();
 
-    const escolaId = req.user?.escolaId;
-    if (!escolaId) throw new AppError('Tenant (escolaId) não identificado no token.', 403);
-
-    const matriculaRascunho = await prisma.matricula.findFirst({
-      where: { id: matriculaId.toString(), escolaId },
+    // 1. Validar Matrícula e Buscar Aluno
+    const matricula = await prisma.matricula.findUnique({
+      where: { id: idFormatado },
       include: { aluno: true }
     });
+    if (!matricula) throw new AppError('Matrícula não encontrada.', 404);
 
-    if (!matriculaRascunho) throw new AppError('Matrícula não encontrada.', 404);
-
-    // --- CÁLCULOS FINANCEIROS PRÉ-TRANSAÇÃO ---
-    // 1. Busca os valores das atividades extras atreladas para compor a mensalidade
+    // 2. Calcular Atividades Extras (Segurança: Busca valor real do Banco)
     const atividades = await prisma.atividadeExtra.findMany({
-      where: { id: { in: atividadesExtrasIds }, escolaId }
+      where: { id: { in: dados.atividadesExtrasIds } }
     });
+    const valorTotalExtras = atividades.reduce((acc, curr) => acc + Number(curr.valor), 0);
 
-    const somaExtras = atividades.reduce((acc, curr) => acc + Number(curr.valor), 0);
-    const totalMensalidade = (Number(valorMensalidadeBase) - Number(descontoMensalidade)) + somaExtras;
-
-    // ATENÇÃO: Quando o banco estiver sincronizado, adicione o (valorMatricula - descontoMatricula) na parcela 1.
-    const valorPrimeiraParcela = totalMensalidade;
-
-    // --- TRANSAÇÃO ATÔMICA ---
+    // 3. TRANSAÇÃO FINANCEIRA ATÔMICA
     const resultado = await prisma.$transaction(async (tx) => {
 
-      // A. Gerar Número Oficial (Mantido o seu código)
-      const anoAbreviado = new Date().getFullYear().toString().slice(-2);
-      const randomID = Math.floor(1000 + Math.random() * 9000);
-      const numeroMatriculaOficial = `${anoAbreviado}.${randomID}`;
-
-      // B. Efetivar Matrícula (Mantido o seu código)
-      await tx.matricula.update({
-        where: { id: matriculaId.toString() },
-        data: { status: 'APROVADA', numeroMatricula: numeroMatriculaOficial }
-      });
-
-      // C. Criar o Contrato
+      // A. Criar o Contrato
       const contrato = await tx.contrato.create({
         data: {
-          alunoId: matriculaRascunho.alunoId,
-          responsavelFinanceiroId,
           escolaId,
-          valorMatricula,
-          descontoMatricula,
-          valorMensalidadeBase,
-          descontoMensalidade,
-          diaVencimento,
-          quantidadeParcelas: qtdParcelas,
-          dataInicio: new Date(),
-          status: 'ATIVO'
+          alunoId: matricula.alunoId,
+          responsavelFinanceiroId: dados.responsavelFinanceiroId,
+          valorMatricula: dados.valorMatricula,
+          descontoMatricula: dados.descontoMatricula,
+          valorMensalidadeBase: dados.valorMensalidadeBase,
+          descontoMensalidade: dados.descontoMensalidade,
+          diaVencimento: dados.diaVencimento,
+          quantidadeParcelas: dados.qtdParcelas,
+          status: 'ATIVO',
         }
       });
 
-      // D. Processar o "Carrinho" de Atividades Extras
-      if (atividadesExtrasIds && atividadesExtrasIds.length > 0) {
-        const vinculosExtras = atividadesExtrasIds.map((extraId: string) => ({
-          alunoId: matriculaRascunho.alunoId,
-          atividadeExtraId: extraId,
-          ativo: true,
-          dataInicio: new Date()
-        }));
-        await tx.alunoAtividadeExtra.createMany({ data: vinculosExtras });
-      }
+      // B. Gerar Parcelas (Boletos)
+      const boletosCriados = [];
+      const valorMensalFinal = (dados.valorMensalidadeBase - dados.descontoMensalidade) + valorTotalExtras;
 
-      // E. GERADOR DE BOLETOS (Integrado ao Model Boletos)
-      const boletosData = [];
-      const dataAtual = new Date();
-      const mesInicial = dataAtual.getMonth() + 1; // Mês atual (1-12)
-      const anoInicial = dataAtual.getFullYear();
+      for (let i = 0; i < dados.qtdParcelas; i++) {
+        const dataVencimento = new Date(dados.dataInicioPagamento);
+        dataVencimento.setMonth(dataVencimento.getMonth() + i);
+        dataVencimento.setDate(dados.diaVencimento);
 
-      for (let i = 1; i <= qtdParcelas; i++) {
-        // Cálculo de Mês e Ano de Referência
-        let mesRef = mesInicial + (i - 1);
-        let anoRef = anoInicial;
-
-        while (mesRef > 12) {
-          mesRef -= 12;
-          anoRef += 1;
-        }
-
-        // Regra de Vencimento
-        const vencimento = new Date(anoRef, mesRef - 1, diaVencimento);
-
-        // Formatação da Referência (Ex: "04/2026")
-        const mesFormatado = mesRef.toString().padStart(2, '0');
-        const referenciaStr = `${mesFormatado}/${anoRef}`;
-
-        boletosData.push({
-          escolaId,
-          alunoId: matriculaRascunho.alunoId,
-          referencia: referenciaStr,
-          mesReferencia: mesRef,
-          anoReferencia: anoRef,
-
-          // Engenharia Financeira
-          valorBase: Number(valorMensalidadeBase) - Number(descontoMensalidade),
-          valorAtividades: Number(somaExtras),
-          valorTotal: i === 1 ? Number(valorPrimeiraParcela) : Number(totalMensalidade),
-
-          dataVencimento: vencimento,
-          status: 'PENDENTE',
-          descricao: `Mensalidade Escolar - Parcela ${i}/${qtdParcelas}`
+        const boleto = await tx.boletos.create({
+          data: {
+            alunoId: matricula.alunoId,
+            escolaId,
+            referencia: `Parcela ${i + 1}/${dados.qtdParcelas}`,
+            mesReferencia: dataVencimento.getMonth() + 1,
+            anoReferencia: dataVencimento.getFullYear(),
+            valorBase: dados.valorMensalidadeBase - dados.descontoMensalidade,
+            valorAtividades: valorTotalExtras,
+            valorTotal: valorMensalFinal,
+            dataVencimento,
+            status: 'PENDENTE',
+          }
         });
+        boletosCriados.push(boleto);
       }
 
-      // Salva os boletos (parcelas) em lote
-      await tx.boletos.createMany({ data: boletosData as any[] });
 
-      return {
-        numeroMatricula: numeroMatriculaOficial,
-        contratoId: contrato.id
-      };
+      return { contratoId: contrato.id, parcelas: boletosCriados.length };
     });
 
-    return res.status(200).json({
-      message: "Matrícula finalizada! Contrato e Boletos gerados com sucesso.",
+    // 4. Auditoria (Opcional: Disparar log de fechamento de contrato)
+    await logger.audit({
+      entidade: 'Contrato',
+      acao: 'CREATE',
+      entidadeId: resultado.contratoId,
+      escolaId,
+      usuarioId: req.user?.userId,
+      dadosNovos: { matriculaId, parcelas: resultado.parcelas }
+    });
+
+    return res.status(201).json({
+      status: 'success',
+      message: 'Matrícula e Contrato finalizados com sucesso.',
       data: resultado
     });
   },

@@ -1,37 +1,46 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
 export const criarContratoSchema = z.object({
   body: z.object({
-    alunoId: z.string().uuid(),
-    responsavelFinanceiroId: z.string().uuid(),
-    valorMensalidade: z.number().positive(),
-    diaVencimento: z.number().int().min(1).max(31),
-    dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    observacoes: z.string().max(1000).optional(),
+    alunoId: z.string().uuid('ID do aluno inválido'),
+    responsavelFinanceiroId: z.string().uuid('Responsável financeiro inválido'),
+
+    // Valores Monetários
+    valorMatricula: z.number().min(0).max(10000),
+    descontoMatricula: z.number().min(0).max(1000),
+    valorMensalidadeBase: z.number().positive('Mensalidade base deve ser maior que zero').max(10000),
+    descontoMensalidade: z.number().min(0).max(1000),
+
+    // Configurações
+    diaVencimento: z.number().int().min(1).max(28, 'Para segurança, use vencimentos até o dia 28'),
+    quantidadeParcelas: z.number().int().min(1).max(12),
+    dataInicio: z.coerce.date(),
+
+    status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO', 'FINALIZADO']).default('ATIVO'),
   }),
-})
+});
 
 export const atualizarContratoSchema = z.object({
   params: z.object({
-    id: z.string().uuid(),
+    id: z.string().uuid('ID do contrato inválido'),
   }),
   body: z.object({
-    valorMensalidade: z.number().positive().optional(),
-    diaVencimento: z.number().int().min(1).max(31).optional(),
-    dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO']).optional(),
+    valorMensalidadeBase: z.number().positive().optional(),
+    descontoMensalidade: z.number().min(0).optional(),
+    diaVencimento: z.number().int().min(1).max(28).optional(),
+    status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO', 'FINALIZADO']).optional(),
+    ativo: z.boolean().optional(),
   }),
-})
+});
 
 export const listarContratosSchema = z.object({
   query: z.object({
-    status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO']).optional(),
-    alunoId: z.string().uuid().optional(),
     page: z.string().regex(/^\d+$/).transform(Number).optional(),
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
-  }).optional(),
-})
+    status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO', 'FINALIZADO']).optional(),
+    alunoId: z.string().uuid().optional(),
+  }),
+});
 
 export const suspenderContratoSchema = z.object({
   params: z.object({

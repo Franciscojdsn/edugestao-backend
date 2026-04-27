@@ -1,26 +1,27 @@
-import { z } from 'zod'
+import { z } from 'zod';
 
 export const listarLogsSchema = z.object({
   query: z.object({
-    page: z.string().regex(/^\d+$/).transform(Number).optional(),
-    limit: z.string().regex(/^\d+$/).transform(Number).optional(),
-    entidade: z.string().optional(),
-    acao: z.string().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    // Trava do Arquiteto: Ninguém busca mais que 500 logs de uma vez na tela
+    limit: z.coerce.number().int().min(1).max(500).default(20),
+    entidade: z.string().max(100).optional(),
+    acao: z.string().max(100).optional(),
     usuarioId: z.string().uuid('ID de usuário inválido').optional(),
-    dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data deve ser YYYY-MM-DD').optional(),
-    dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data deve ser YYYY-MM-DD').optional(),
-  }).optional(),
-})
+    dataInicio: z.coerce.date().optional(),
+    dataFim: z.coerce.date().optional(),
+  }),
+});
 
 export const estatisticasLogsSchema = z.object({
   query: z.object({
-    dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    dataFim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  }).optional(),
-})
+    dataInicio: z.coerce.date().optional(),
+    dataFim: z.coerce.date().optional(),
+  }),
+});
 
 export const detalhesLogSchema = z.object({
   params: z.object({
     id: z.string().uuid('ID de log inválido'),
   }),
-})
+});

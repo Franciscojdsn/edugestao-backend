@@ -34,26 +34,6 @@ router.get(
 )
 
 /**
- * GET /responsaveis
- * Lista TODOS os responsáveis (admin) com filtros
- */
-router.get(
-  '/responsaveis',
-  validate(listarResponsaveisSchema),
-  responsavelController.list
-)
-
-/**
- * GET /responsaveis/:id
- * Busca responsável por ID
- */
-router.get(
-  '/responsaveis/:id',
-  validate(idResponsavelSchema),
-  responsavelController.show
-)
-
-/**
  * POST /responsaveis
  * Cria novo responsável
  */
