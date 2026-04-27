@@ -18,7 +18,10 @@ if (!connectionString) {
 }
  
 // 1. Configurar o Pool de conexão do PG
-const pool = new Pool({ connectionString });
+const pool = new Pool({ 
+  connectionString,
+  ssl: { rejectUnauthorized: false }
+});
 
 // 2. Criar o Adapter
 const adapter = new PrismaPg(pool);

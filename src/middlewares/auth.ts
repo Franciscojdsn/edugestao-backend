@@ -4,11 +4,11 @@ import { verifyToken } from '../utils/jwt'
 import { AppError } from './errorHandler'
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Busca o token no cookie (requer o pacote 'cookie-parser' no server.ts)
-  const token = req.cookies.edugestao_token;
+  // Busca o token exclusivamente no cookie HttpOnly para segurança máxima
+  const token = req.cookies?.edugestao_token;
 
   if (!token) {
-    throw new AppError('Sessão expirada ou não encontrada', 401);
+    return next(new AppError('Sessão expirada ou não encontrada. Por favor, faça login novamente.', 401));
   }
 
   try {
@@ -22,6 +22,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 
     next();
   } catch (error) {
-    throw new AppError('Token inválido', 401);
+    return next(new AppError('Token inválido ou sessão expirada.', 401));
   }
 }

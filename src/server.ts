@@ -62,10 +62,10 @@ const app = express()
 
 const allowedOrigins = [
   'https://edugestao-frontend.vercel.app',
-  'https://edugestao-frontend-franciscojdsn97-4743s-projects.vercel.app/',
+  'https://edugestao-frontend-franciscojdsn97-4743s-projects.vercel.app',
   'http://localhost:3000',
   process.env.FRONTEND_URL
-].filter(Boolean) as string[]; // Remove valores undefined/null
+].filter(Boolean).map(origin => String(origin).replace(/\/$/, '')) as string[];
 
 // 2. Segurança de Cabeçalhos (Proteção contra XSS e Sniffing)
 app.use(helmet({
@@ -99,7 +99,7 @@ const limiter = rateLimit({
   max: 100,
   message: 'Muitas requisições originadas deste IP, tente novamente mais tarde.'
 });
-app.use('/auth/', limiter); // Aplica apenas em rotas sensíveis como login
+app.use('/auth', limiter); 
 
 
 // Logger de Requisições para Debug
