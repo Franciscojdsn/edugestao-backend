@@ -62,16 +62,16 @@ const app = express()
 
 const allowedOrigins = [
   'https://edugestao-frontend.vercel.app',
-  'https://edugestao-frontend-ov8k.vercel.app',
+  'https://edugestao-frontend-franciscojdsn97-4743s-projects.vercel.app/',
   'http://localhost:3000',
   process.env.FRONTEND_URL
 ].filter(Boolean) as string[]; // Remove valores undefined/null
 
 // 2. Segurança de Cabeçalhos (Proteção contra XSS e Sniffing)
 app.use(helmet({
-  contentSecurityPolicy: true, // Ativa CSP estrito
-  crossOriginEmbedderPolicy: true
-})); 
+  contentSecurityPolicy: false, // Em desenvolvimento/cross-domain, o CSP estrito pode bloquear o login
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
@@ -87,7 +87,9 @@ app.use(cors({
       callback(new Error('Bloqueado pelo CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // 3. Sanitização Básica (Proteção contra injeção de scripts nos inputs)
