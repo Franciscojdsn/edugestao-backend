@@ -1,8 +1,11 @@
 {
   "name": "edugestao-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend ERP Educacional SaaS",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "npx tsc",
@@ -15,8 +18,13 @@
     "type": "git",
     "url": "git+https://github.com/Franciscojdsn/edugestao-backend.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "erp",
+    "educacional",
+    "saas",
+    "multi-tenant"
+  ],
+  "author": "Equipe EduGestão",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
@@ -38,23 +46,17 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0",
-    "zod": "^4.3.6",
-    "typescript": "^5.9.3",
-    "@types/node": "^20.11.0",
-    "@types/express": "^5.0.6",
-    "@types/cookie-parser": "^1.4.10",
-    "@types/cors": "^2.8.19"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.4.0",
     "@types/axios": "^0.9.36",
     "@types/bcrypt": "^6.0.0",
-    "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^25.6.0",
+    "@types/node": "^20.19.39",
     "@types/pg": "^8.20.0",
     "prisma": "^7.3.0",
     "ts-node": "^10.9.2",
