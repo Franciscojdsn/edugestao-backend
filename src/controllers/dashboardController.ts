@@ -26,18 +26,27 @@ export const dashboardController = {
     // Execução Paralela de Agregações (Performance Máxima)
     // A Extensão Prisma aplicará 'escolaId' e 'deletedAt: null' silenciosamente em TODAS elas
     const [
+      escola,
       totalAlunos,
-      totalTurmas,
+      totalInadimplentes,
       inadimplencia,
-      faturamentoCiclo
+      faturamentoCiclo,
+      todosAlunosData // Para contar aniversariantes em memória (mais seguro p/ diferentes DBs)
     ] = await Promise.all([
+      // 0. Informações da Escola (Nome e CNPJ)
+      prisma.escola.findFirst({
+        select: { nome: true, cnpj: true }
+      }),
+
       // 1. Total de alunos ativos (que possuem contrato ativo)
       prisma.aluno.count({
         where: { contrato: { ativo: true } }
       }),
 
-      // 2. Turmas cadastradas
-      prisma.turma.count(),
+      // 2. Total de alunos inadimplentes (com boletos vencidos)
+      prisma.aluno.count({
+        where: { boletos: { some: { status: 'VENCIDO', dataVencimento: { lt: hoje } } } }
+      }),
 
       // 3. Inadimplência (Boletos vencidos e não pagos)
       prisma.boletos.aggregate({
@@ -55,16 +64,28 @@ export const dashboardController = {
           tipo: 'ENTRADA',
           data: { gte: inicioCiclo, lte: fimCiclo }
         }
+      }),
+
+      // 5. Busca datas de nascimento para filtro de aniversariantes
+      prisma.aluno.findMany({
+        where: { dataNascimento: { not: null } },
+        select: { dataNascimento: true }
       })
     ]);
+
+    const totalAniversariantes = todosAlunosData.filter(a => 
+      a.dataNascimento?.getMonth() === hoje.getMonth()
+    ).length;
 
     return res.json({
       status: 'success',
       data: {
+        escola,
         cicloAtual: { inicio: inicioCiclo, fim: fimCiclo },
         kpis: {
           totalAlunos,
-          totalTurmas,
+          totalInadimplentes,
+          totalAniversariantes,
           valorInadimplente: inadimplencia._sum.valorTotal || 0,
           faturamentoCiclo: faturamentoCiclo._sum.valor || 0
         }

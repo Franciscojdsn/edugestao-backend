@@ -105,6 +105,7 @@ app.use('/auth', limiter);
 // Logger de Requisições para Debug
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  if (req.cookies) console.log("🍪 Cookies recebidos:", Object.keys(req.cookies));
   next();
 });
 

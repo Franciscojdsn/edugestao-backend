@@ -6,8 +6,11 @@ export const gerarBoletosContratoSchema = z.object({
   }),
   body: z.object({
     meses: z.number().int().min(1).max(12).default(12),
-    mesInicio: z.number().int().min(1).max(12).default(new Date().getMonth() + 1),
-    anoInicio: z.number().int().min(2024).max(2100).default(new Date().getFullYear()),
+    anoInicio: z.number().int().min(2024).max(2100).default(() => {
+      const next = new Date();
+      next.setMonth(next.getMonth() + 1);
+      return next.getFullYear();
+    }),
   }),
 });
 

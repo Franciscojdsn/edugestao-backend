@@ -19,5 +19,6 @@ router.post('/:matriculaId/finalizar', validate(finalizarMatriculaSchema), matri
 router.get('/:id', matriculaController.show)
 router.put('/:id/status', matriculaController.atualizarStatus)
 router.delete('/:id', matriculaController.cancelar)
+router.get('/enderecos/:id', matriculaController.getEnderecoById) // Nova rota para buscar endereço por ID
 
 export { router as matriculaRoutes }

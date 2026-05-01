@@ -1,5 +1,6 @@
 // src/utils/logger.ts
 import axios from 'axios';
+import { prisma } from '../config/prisma';
 
 enum LogLevel {
   INFO = 'INFO',     // Auditoria comum (quem mudou o quê)
@@ -34,7 +35,7 @@ export const logger = {
     // Usamos o prismaBase para evitar recursão infinita na extensão
     try {
       // Importação dinâmica para evitar circular dependency
-      const { prisma } = require('../lib/prisma'); 
+      const { prismaBase } = require('../config/prisma'); 
       await prisma.logAuditoria.create({ data });
     } catch (e) {
       console.error("Erro ao gravar log de auditoria", e);

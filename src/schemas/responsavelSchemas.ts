@@ -25,16 +25,15 @@ export const criarResponsavelSchema = z.object({
         rg: z.string().min(5, 'RG muito curto').max(20, 'RG muito longo').trim().optional().nullable(),
 
         telefone1: z.string()
-            .min(10, 'Telefone muito curto')
-            .max(15, 'Telefone excede limite')
             .transform(normalizeNumbers)
-            .optional()
-            .nullable(),
+            .refine(val => val.length >= 10, 'Telefone principal é obrigatório'),
 
         telefone2: z.string()
-            .max(15)
-            .transform(normalizeNumbers)
-            .optional().nullable(),
+            .transform(val => (val ? normalizeNumbers(val) : ''))
+            .refine(val => val === '' || val.length >= 10, 'Telefone inválido')
+            .transform(val => (val === '' ? null : val))
+            .optional()
+            .nullable(),
 
         email: z.string()
             .email('Email inválido')

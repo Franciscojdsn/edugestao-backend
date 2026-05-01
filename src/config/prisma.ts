@@ -17,7 +17,8 @@ if (!connectionString) {
 // 2. Configurar o Pool de conexão nativo do PG
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false }
+  // Ativa SSL no Render/Neon, mas desativa no localhost
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
 // 3. Criar o Adapter
@@ -73,7 +74,7 @@ export const prisma = prismaBase.$extends({
           }
 
           // Auto-injeção no Create (Garante que todo registro nasce no tenant certo)
-          if (operation === 'create' && args.data) {
+          if (operation === 'create' && args.data && !(args.data as any).escolaId) {
             (args.data as any).escolaId = escolaId;
           }
           if (operation === 'createMany' && Array.isArray(args.data)) {

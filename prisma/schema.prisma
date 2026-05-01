@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  
 }
 
 // ============================================
@@ -133,10 +132,11 @@ model Aluno {
   dataMatricula   DateTime @default(now())
 
   // Campos de Saúde (Etapa 1)
-  numeroSus  String? @db.VarChar(15)
-  planoSaude Boolean @default(false)
-  hospital   String? @db.VarChar(50)
-  alergias   String? @db.VarChar(100)
+  numeroSus    String? @db.VarChar(15)
+  planoSaude   Boolean @default(false)
+  hospital     String? @db.VarChar(100)
+  alergias     String? @db.VarChar(500)
+  medicamentos String? @db.VarChar(500)
 
   // Relacionamentos
   escolaId String
@@ -179,22 +179,17 @@ model Aluno {
 // 5. RESPONSÁVEL (Família e Financeiro)
 // ============================================
 model Responsavel {
-  id             String    @id @default(uuid()) // UUID v4 Obrigatório
-  nome           String    @db.VarChar(100)
-  cpf            String?   @db.VarChar(11) // Essencial para emissão de boletos/contratos
-  rg             String?   @db.VarChar(20)
-  dataNascimento DateTime? @db.Date
-  telefone1      String?   @db.VarChar(15)
-  telefone2      String?   @db.VarChar(15) // Segundo telefone solicitado
-  email          String?   @db.VarChar(70)
+  id        String  @id @default(uuid()) // UUID v4 Obrigatório
+  nome      String  @db.VarChar(100)
+  cpf       String  @db.VarChar(11) // Essencial para emissão de boletos/contratos
+  rg        String? @db.VarChar(20)
+  telefone1 String  @db.VarChar(15)
+  telefone2 String? @db.VarChar(15) // Segundo telefone solicitado
+  email     String  @db.VarChar(70)
 
   // --- Regras de Negócio ---
   tipo                    TipoResponsavel
   isResponsavelFinanceiro Boolean         @default(false)
-
-  // --- Relacionamentos de Identidade ---
-  alunoId String
-  aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
   // --- Multi-tenancy Absoluto ---
   escolaId String
@@ -212,9 +207,11 @@ model Responsavel {
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   transacaos Transacao[]
+  aluno      Aluno?      @relation(fields: [alunoId], references: [id])
+  alunoId    String?
+  matricula  Matricula?
 
-  @@unique([cpf, alunoId, escolaId])
-  @@index([alunoId])
+  @@unique([cpf, escolaId])
   @@index([escolaId])
   @@index([cpf]) // Indexado para buscas rápidas de histórico familiar
   @@index([isResponsavelFinanceiro])
@@ -909,6 +906,9 @@ model Matricula {
   // Relacionamentos
   alunoId String @unique
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  responsavelId String?      @unique
+  responsavel   Responsavel? @relation(fields: [responsavelId], references: [id], onDelete: Restrict)
 
   turmaId String
   turma   Turma  @relation(fields: [turmaId], references: [id], onDelete: Restrict)

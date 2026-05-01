@@ -30,12 +30,14 @@ export const authController = {
       role: usuario.role,
     });
 
-    // 2. Injetar no Cookie Seguro (Defesa contra XSS)
+    // 2. Injetar no Cookie Seguro (Ajustado para permitir Localhost)
+    const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('edugestao_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none', // Mudamos de 'strict' para 'lax' para facilitar o dev local entre portas
-      path: '/',      // Explicitamos a raiz
+      secure: isProduction, 
+      // Em desenvolvimento localhost, 'lax' é necessário para o Chrome aceitar cookies entre portas (3000 -> 3333)
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/',
       maxAge: 1000 * 60 * 60 * 24 // 24 horas
     });
 
@@ -58,10 +60,11 @@ export const authController = {
    * Remove o cookie HttpOnly do navegador do usuário
    */
   async logout(req: Request, res: Response) {
+    const isProduction = process.env.NODE_ENV === 'production';
     res.clearCookie('edugestao_token', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       path: '/', // OBRIGATÓRIO ser igual ao do login
     });
 
@@ -74,6 +77,12 @@ export const authController = {
    */
   async me(req: Request, res: Response) {
     const userId = req.user?.userId;
+
+    console.log("--- 🟦 DEBUG BACKEND: /auth/me ---");
+    console.log("🍪 Cookies brutos na Request:", req.cookies);
+    console.log("🔑 Header Authorization:", req.headers.authorization);
+    console.log("👤 UserID processado pelo Middleware:", userId || "⚠️ Nenhum (Middleware falhou)");
+    console.log("----------------------------------");
 
     if (!userId) {
       throw new AppError('Não autorizado', 401);

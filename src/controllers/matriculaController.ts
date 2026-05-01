@@ -81,19 +81,21 @@ export const matriculaController = {
       // C. Registro Inicial do Wizard de Matrícula
       const novaMatricula = await tx.matricula.create({
         data: {
+          // Usamos scalar IDs para compatibilidade com a extensão de Multi-tenancy
           alunoId: novoAluno.id,
-          escolaId,
           turmaId: dados.turmaId,
-          anoLetivo: Number(dados.anoLetivo),
+          escolaId, // Explicitamente necessário para satisfazer a tipagem do Prisma
           status: 'PENDENTE',
           etapaAtual: 'RESPONSAVEIS',
-          numeroMatricula
+          numeroMatricula,
+          anoLetivo: turma.anoLetivo
         }
       });
-
+      
       return {
         matriculaId: novaMatricula.id,
-        alunoId: novoAluno.id
+        alunoId: novoAluno.id,
+        enderecoId: novoEndereco.id
       };
     });
 
@@ -111,43 +113,69 @@ export const matriculaController = {
   async adicionarResponsavel(req: Request, res: Response) {
     // 1. Captura correta do parâmetro da rota (/:matriculaId)
     const { matriculaId } = req.params;
-    const { escolaId } = req.user as { escolaId: string }; // Segurança Multi-tenant
+    const escolaId = getRequiredEscolaId(); // Validação de contexto obrigatória
 
     // 2. Destruturação Blindada
-    // Removemos 'endereco' (objeto do formulário) para que ele não vaze no '...dadosResponsavel'
     const {
       usarEnderecoDoAluno,
-      enderecoId: enderecoFrontId,
-      endereco, // Objeto de endereço vindo do form (ignorado se for herança)
+      endereco: enderecoData,
       ...dadosResponsavel
     } = req.body;
 
     // 3. Busca da Matrícula e Aluno (Isolamento de Dados)
-    const matricula = await prisma.matricula.findFirst({
-      where: { id: matriculaId.toString(), escolaId },
+    const matricula = await prisma.matricula.findUnique({
+      where: { 
+        id: Array.isArray(matriculaId) ? matriculaId[0] : matriculaId
+      },
       include: { aluno: { select: { enderecoId: true } } }
     });
 
     if (!matricula) throw new AppError('Matrícula não localizada.', 404);
 
-    // 4. Lógica de Decisão do Endereço (UUID v4)
+    // 4. Lógica de Persistência do Endereço
     let enderecoFinalId: string | null = null;
 
-    if (usarEnderecoDoAluno === true) {
+    if (usarEnderecoDoAluno) {
       enderecoFinalId = matricula.aluno?.enderecoId;
-    } else {
-      enderecoFinalId = enderecoFrontId;
+    } else if (enderecoData) {
+      // Cria novo endereço se não usar o do aluno
+      const novoEnd = await prisma.endereco.create({
+        data: {
+          rua: enderecoData.rua,
+          numero: enderecoData.numero,
+          complemento: enderecoData.complemento,
+          bairro: enderecoData.bairro,
+          cidade: enderecoData.cidade,
+          estado: enderecoData.estado,
+          cep: enderecoData.cep.replace(/\D/g, ''),
+          escolaId
+        }
+      });
+      enderecoFinalId = novoEnd.id;
     }
 
-    // 5. Persistência usando o campo FK diretamente (Mais performático)
-    // Usamos 'enderecoId' em vez do objeto 'endereco' para evitar o erro de validação
-    const responsavel = await prisma.responsavel.create({
-      data: {
-        ...dadosResponsavel,
-        alunoId: matricula.alunoId,
-        escolaId,
-        enderecoId: enderecoFinalId, // Grava o UUID diretamente
-      }
+    // Usamos transação para garantir que o responsável seja criado e vinculado à matrícula
+    const responsavel = await prisma.$transaction(async (tx) => {
+      const idFormatado = Array.isArray(matriculaId) ? matriculaId[0] : matriculaId;
+      const res = await tx.responsavel.create({
+        data: {
+          ...dadosResponsavel,
+          cpf: dadosResponsavel.cpf?.replace(/\D/g, ''),
+          telefone1: dadosResponsavel.telefone1?.replace(/\D/g, ''),
+          telefone2: dadosResponsavel.telefone2?.replace(/\D/g, ''),
+          alunoId: matricula.alunoId,
+          escolaId,
+          enderecoId: enderecoFinalId,
+        }
+      });
+
+      // Vincula o responsável à matrícula para o Passo 3
+      await tx.matricula.update({
+        where: { id: idFormatado },
+        data: { responsavelId: res.id }
+      });
+
+      return res;
     });
 
     return res.status(201).json(responsavel);
@@ -163,10 +191,10 @@ export const matriculaController = {
     const dados = req.body;
     const escolaId = getRequiredEscolaId();
 
-    // 1. Validar Matrícula e Buscar Aluno
-    const matricula = await prisma.matricula.findUnique({
-      where: { id: idFormatado },
-      include: { aluno: true }
+    // 1. Validar Matrícula e Buscar Aluno (Segurança Multi-tenant)
+    const matricula = await prisma.matricula.findFirst({
+      where: { id: idFormatado, escolaId },
+      include: { aluno: true, contrato: true }
     });
     if (!matricula) throw new AppError('Matrícula não encontrada.', 404);
 
@@ -201,7 +229,8 @@ export const matriculaController = {
 
       for (let i = 0; i < dados.qtdParcelas; i++) {
         const dataVencimento = new Date(dados.dataInicioPagamento);
-        dataVencimento.setMonth(dataVencimento.getMonth() + i);
+        // Adicionamos +1 ao índice 'i' para que a primeira parcela (i=0) seja no mês seguinte
+        dataVencimento.setMonth(dataVencimento.getMonth() + i + 1);
         dataVencimento.setDate(dados.diaVencimento);
 
         const boleto = await tx.boletos.create({
@@ -221,6 +250,16 @@ export const matriculaController = {
         boletosCriados.push(boleto);
       }
 
+      // C. Atualizar o registro da Matrícula para Finalizada
+      await tx.matricula.update({
+        where: { id: idFormatado },
+        data: {
+          status: 'APROVADA',
+          etapaAtual: 'FINALIZADA',
+          contratoId: contrato.id,
+          responsaveisOk: true
+        }
+      });
 
       return { contratoId: contrato.id, parcelas: boletosCriados.length };
     });
@@ -359,5 +398,27 @@ export const matriculaController = {
     })
 
     return res.json({ message: 'Matrícula cancelada' })
+  },
+
+  /**
+   * GET /matriculas/enderecos/:id
+   * Busca um endereço pelo ID, garantindo multi-tenancy.
+   */
+  async getEnderecoById(req: Request, res: Response) {
+    const { id } = req.params;
+    const escolaId = getRequiredEscolaId();
+
+    const endereco = await prisma.endereco.findFirst({
+      where: {
+        id: Array.isArray(id) ? id[0] : id,
+        escolaId,
+      },
+    });
+
+    if (!endereco) {
+      throw new AppError('Endereço não encontrado ou não pertence à sua escola.', 404);
+    }
+
+    return res.json({ status: 'success', data: endereco });
   },
 }

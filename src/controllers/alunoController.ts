@@ -29,18 +29,19 @@ export const alunoController = {
         where,
         skip,
         take: Number(limit),
-        include: { turma: { select: { nome: true } } },
+        include: { turma: { select: { nome: true, turno: true } } },
         orderBy: { nome: 'asc' }
       }),
       prisma.aluno.count({ where })
     ]);
 
     return res.json({
+      status: 'success',
       data: alunos,
       meta: {
         total,
         page: Number(page),
-        lastPage: Math.ceil(total / Number(limit))
+        totalPages: Math.ceil(total / Number(limit))
       }
     });
   },

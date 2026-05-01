@@ -9,7 +9,7 @@ export const gerarBoletosController = {
    */
   async gerar(req: Request, res: Response) {
     const { contratoId } = req.params;
-    const { meses, mesInicio, anoInicio } = req.body;
+    const { meses, anoInicio } = req.body;
 
     // 1. Busca Segura via Extensão Prisma (O escolaId é garantido nos bastidores)
     const contrato = await prisma.contrato.findFirst({
@@ -44,13 +44,21 @@ export const gerarBoletosController = {
     const resultado = await prisma.$transaction(async (tx) => {
       const promessasBoletos = [];
 
+      // Lógica de contagem reversa: o último boleto é sempre Dezembro (12)
+      const mesFim = 12;
+      const mesMatricula = mesFim - meses; // Ex: 12 - 8 = 4 (Mês da Matrícula)
+      const startMonth = mesMatricula + 1;  // Ex: 5 (Mês da primeira parcela)
+
+      // Atualiza o registro da Matrícula para salvar o mês que foi considerado como taxa de matrícula
+      await tx.matricula.update({
+        where: { alunoId: contrato.alunoId },
+        data: { dataMatricula: new Date(anoInicio, mesMatricula - 1, 1) }
+      });
+
       for (let i = 0; i < meses; i++) {
-        // Cálculo seguro de data que previne o bug da "Virada de Mês Longo"
-        // Exemplo: Janeiro tem dia 31, Fevereiro não. 
-        const dataReferencia = new Date(anoInicio, (mesInicio - 1) + i, 1);
-        const m = dataReferencia.getMonth() + 1;
-        const anoAtual = dataReferencia.getFullYear();
-        
+        const m = startMonth + i;
+        const anoAtual = anoInicio;
+
         const referencia = `${String(m).padStart(2, '0')}/${anoAtual}`;
         
         // Evitando o bug do dia 31 em meses curtos

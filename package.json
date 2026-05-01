@@ -32,6 +32,7 @@
   },
   "homepage": "https://github.com/Franciscojdsn/edugestao-backend#readme",
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "axios": "^1.15.2",
@@ -46,6 +47,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0",
+    "react-hook-form": "^7.74.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

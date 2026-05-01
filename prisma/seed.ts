@@ -1,12 +1,15 @@
-import { Pool } from 'pg';
+import pkgPg from 'pg';
+const { Pool } = pkgPg;
+import pkgBcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, StatusPagamento } from '@prisma/client';
+const bcrypt = pkgBcrypt;
 
-// O Prisma Seed script precisa usar a conexão direta para inserções em massa
+// Conexão Direta OBRIGATÓRIA para o Seed rodar sem o pooler cortar no meio
 const connectionString = process.env.DIRECT_URL;
 
 if (!connectionString) {
-    throw new Error("❌ [CRITICAL] DIRECT_URL não definida. Verifique seu arquivo .env");
+    throw new Error("❌ [CRITICAL] DIRECT_URL não definida no .env");
 }
 
 const pool = new Pool({ connectionString });
@@ -14,116 +17,257 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+    // Dynamic import to handle ESM module in CommonJS environment
     const { fakerPT_BR: faker } = await import('@faker-js/faker');
 
-    console.log('🚀 Iniciando Seed de Estresse - EduGestão (Prisma 7)');
+    console.log('🚀 Iniciando Super Seed Estrutural - EduGestão...');
 
-    const escolaId = faker.string.uuid();
+    // ---------------------------------------------------------
+    // 0. LIMPEZA DE DADOS EXISTENTES
+    // ---------------------------------------------------------
+    // Como a relação com Escola está configurada com onDelete: Cascade em muitos modelos,
+    // deletar as escolas limpará a maior parte dos dados vinculados.
+    console.log('🧹 Limpando dados antigos...');
+    await prisma.escola.deleteMany();
 
-    // 1. Tenant Principal (Escola)
+    // ---------------------------------------------------------
+    // 1. ESCOLA E USUÁRIO ADMIN
+    // ---------------------------------------------------------
+    const senhaHash = await bcrypt.hash('admin123', 10);
+
     const escola = await prisma.escola.create({
         data: {
-            id: escolaId,
-            nome: 'Colégio EduGestão High-Performance',
-            cnpj: faker.string.numeric(14), // Máximo 14 caracteres pelo schema
+            id: faker.string.uuid(),
+            nome: `Colégio EduGestão - Matriz`,
+            cnpj: faker.string.numeric(14),
+            mensalidadePadrao: 1200.00,
+            diaVencimento: 10,
         },
     });
-    console.log(`✅ Tenant criado: ${escola.nome} | ID: ${escola.id}`);
 
-    // 2. Turmas Pedagógicas
-    const turmas = await Promise.all(['1º Ano Ensino Médio', '2º Ano Ensino Médio'].map(nome =>
-        prisma.turma.create({
+    const usuario = await prisma.usuario.upsert({
+        where: { email: 'admin@edugestao.com.br' },
+        update: {
+            senha: senhaHash,
+            nome: 'Diretor Administrativo',
+            escolaId: escola.id,
+        },
+        create: {
+            email: 'admin@edugestao.com.br',
+            senha: senhaHash,
+            nome: 'Diretor Administrativo',
+            role: 'ADMIN',
+            escolaId: escola.id,
+        }
+    });
+
+    console.log(`✅ Escola e Usuário Admin criados.`);
+
+    const escolaId = escola.id;
+
+    // ---------------------------------------------------------
+    // 2. ENDEREÇO
+    // ---------------------------------------------------------
+    const endereco = await prisma.endereco.create({
+        data: {
+            id: faker.string.uuid(),
+            cep: '12345678',
+            rua: faker.location.street(),
+            numero: '100',
+            bairro: faker.location.county(),
+            cidade: faker.location.city(),
+            estado: 'SP',
+            escolaId,
+        },
+    });
+    console.log(`✅ Endereço criado.`);
+
+    // ---------------------------------------------------------
+    // 3. FUNCIONÁRIO/PROFESSOR E DISCIPLINA
+    // ---------------------------------------------------------
+    const professor = await prisma.funcionario.create({
+        data: {
+            id: faker.string.uuid(),
+            nome: faker.person.fullName(),
+            cpf: faker.string.numeric(11),
+            cargo: 'PROFESSOR',
+            salarioBase: 3500.00,
+            escolaId,
+            enderecoId: endereco.id
+        },
+    });
+
+    const disciplina = await prisma.disciplina.create({
+        data: {
+            id: faker.string.uuid(),
+            nome: 'Matemática',
+            cargaHoraria: 40,
+            escolaId,
+        },
+    });
+    console.log(`✅ Professor e Disciplina criados.`);
+
+    // ---------------------------------------------------------
+    // 4. TURMA
+    // ---------------------------------------------------------
+    const turma = await prisma.turma.create({
+        data: {
+            id: faker.string.uuid(),
+            nome: `1º Ano EM`,
+            anoLetivo: 2026,
+            turno: 'MANHA',
+            escolaId,
+        },
+    });
+    console.log(`✅ Turma criada.`);
+
+    // ---------------------------------------------------------
+    // 5. ATIVIDADE EXTRA
+    // ---------------------------------------------------------
+    const atividade = await prisma.atividadeExtra.create({
+        data: {
+            id: faker.string.uuid(),
+            nome: `Futsal`,
+            valor: 150.00,
+            escolaId,
+        },
+    });
+    console.log(`✅ Atividade Extra criada.`);
+
+    // ---------------------------------------------------------
+    // 6. ALUNO, RESPONSÁVEL, CONTRATO E MATRÍCULA
+    // ---------------------------------------------------------
+    const alunoId = faker.string.uuid();
+    const respId = faker.string.uuid();
+    const matriculaNum = '26.0001';
+
+    await prisma.$transaction(async (tx) => {
+        const aluno = await tx.aluno.create({
             data: {
-                id: faker.string.uuid(),
-                nome,
-                anoLetivo: 2026,
-                turno: 'MANHA', // Mapeado do enum Turno
-                escolaId
-            }
-        })
-    ));
-    console.log(`✅ ${turmas.length} Turmas criadas.`);
-
-    console.log('⏳ Gerando 200 alunos, responsáveis, contratos e boletos. Aguarde...');
-
-    // 3. Batch de Alunos com Relacionamentos Dependentes
-    for (let i = 0; i < 200; i++) {
-        const alunoId = faker.string.uuid();
-        const respId = faker.string.uuid();
-        const turma = faker.helpers.arrayElement(turmas);
-
-        await prisma.$transaction(async (tx) => {
-            // ORDEM CORRIGIDA: O Pai (Aluno) DEVE nascer antes do Filho (Responsável)
-
-            // A) Criação do Aluno
-            await tx.aluno.create({
-                data: {
-                    id: alunoId,
-                    nome: faker.person.fullName(),
-                    numeroMatricula: `26.${String(i + 1).padStart(4, '0')}`, // Ex: "26.0001" - Limite VarChar(7)
-                    cpf: faker.string.numeric(11),
-                    escolaId,
-                    turmaId: turma.id
-                }
-            });
-
-            // B) Criação do Responsável (Agora ele achará o alunoId)
-            await tx.responsavel.create({
-                data: {
-                    id: respId,
-                    nome: faker.person.fullName(),
-                    cpf: faker.string.numeric(11),
-                    isResponsavelFinanceiro: true,
-                    alunoId: alunoId,
-                    escolaId,
-                    tipo: 'PAI' // Mapeado do enum TipoResponsavel
-                }
-            });
-
-            // C) Criação do Contrato Financeiro
-            await tx.contrato.create({
-                data: {
-                    id: faker.string.uuid(),
-                    alunoId,
-                    responsavelFinanceiroId: respId,
-                    valorMensalidadeBase: 1200.00,
-                    quantidadeParcelas: 12,
-                    escolaId,
-                }
-            });
-
-            // D) Geração do Livro de Recebíveis (Boletos)
-            const parcelas = Array.from({ length: 12 }).map((_, idx) => ({
-                id: faker.string.uuid(),
-                referencia: `Parcela ${idx + 1}/12`,
-                mesReferencia: idx + 1,
-                anoReferencia: 2026,
-                valorBase: 1200.00,
-                valorTotal: 1200.00,
-                dataVencimento: new Date(2026, idx, 10),
-                status: (idx < 2 ? 'PAGO' : 'PENDENTE') as StatusPagamento, // Mapeado do enum StatusPagamento
-                alunoId,
+                id: alunoId,
+                nome: faker.person.fullName(),
+                numeroMatricula: matriculaNum,
+                cpf: faker.string.numeric(11),
+                turmaId: turma.id,
                 escolaId,
-            }));
-
-            // Inserção em lote na tabela mapeada "boletos"
-            await tx.boletos.createMany({
-                data: parcelas
-            });
+                enderecoId: endereco.id
+            },
         });
 
-        // Feedback de CLI para o terminal não parecer travado
-        if ((i + 1) % 50 === 0) {
-            console.log(`   - ${i + 1} famílias processadas com sucesso...`);
-        }
-    }
+        await tx.responsavel.create({
+            data: {
+                id: respId,
+                nome: faker.person.fullName(),
+                cpf: faker.string.numeric(11),
+                telefone1: faker.string.numeric(11),
+                email: faker.internet.email(),
+                isResponsavelFinanceiro: true,
+                tipo: 'PAI',
+                alunoId: alunoId,
+                escolaId,
+            },
+        });
 
-    console.log('✅ Seed de Estresse finalizado sem violação de chaves.');
+        const contrato = await tx.contrato.create({
+            data: {
+                id: faker.string.uuid(),
+                alunoId,
+                responsavelFinanceiroId: respId,
+                valorMensalidadeBase: 1200.00,
+                valorMatricula: 500.00,
+                diaVencimento: 10,
+                quantidadeParcelas: 12,
+                escolaId,
+            },
+        });
+
+        await tx.matricula.create({
+            data: {
+                id: faker.string.uuid(),
+                numeroMatricula: matriculaNum,
+                anoLetivo: 2026,
+                status: 'APROVADA',
+                alunoId,
+                turmaId: turma.id,
+                ResponsavelId: respId,
+                escolaId,
+                contratoId: contrato.id
+            }
+        });
+    });
+    console.log(`✅ Aluno, Responsável, Contrato e Matrícula criados.`);
+
+    // ---------------------------------------------------------
+    // 7. FINANCEIRO E AUDITORIA
+    // ---------------------------------------------------------
+    const txId = faker.string.uuid();
+
+    await prisma.alunoAtividadeExtra.create({
+        data: {
+            id: faker.string.uuid(),
+            alunoId: alunoId,
+            atividadeExtraId: atividade.id,
+            escolaId,
+        },
+    });
+
+    await prisma.boletos.create({
+        data: {
+            id: faker.string.uuid(),
+            referencia: `Jan/2026`,
+            mesReferencia: 1,
+            anoReferencia: 2026,
+            valorBase: 1200.00,
+            valorTotal: 1200.00,
+            dataVencimento: new Date(),
+            status: 'PAGO',
+            alunoId: alunoId,
+            escolaId,
+        },
+    });
+
+    await prisma.transacao.create({
+        data: {
+            id: txId,
+            motivo: `Mensalidade Aluno ${matriculaNum}`,
+            valor: 1200.00,
+            tipo: 'ENTRADA',
+            data: new Date(),
+            formaPagamento: 'PIX',
+            escolaId,
+        },
+    });
+
+    await prisma.lancamento.create({
+        data: {
+            id: faker.string.uuid(),
+            descricao: `Recebimento Ref: ${txId}`,
+            categoria: 'MENSALIDADE',
+            valor: 1200.00,
+            tipo: 'ENTRADA',
+            dataVencimento: new Date(),
+            escolaId,
+        },
+    });
+
+    await prisma.logAuditoria.create({
+        data: {
+            id: faker.string.uuid(),
+            entidade: 'Aluno',
+            acao: 'CREATE',
+            entidadeId: alunoId,
+            escolaId,
+            usuarioId: usuario.id
+        },
+    });
+
+    console.log(`✅ Fluxo Financeiro e Auditoria criados.`);
+    console.log('🎉 BANCO DE DADOS POPULADO E PRONTO PARA TESTES DE AMBIENTE LIGADO!');
 }
 
 main()
     .catch((e) => {
-        console.error('❌ [CRITICAL] O Seed falhou:', e);
+        console.error('❌ [CRITICAL] Falha na injeção de dados. Verifique os nomes das tabelas no schema:', e);
         process.exit(1);
     })
     .finally(async () => {
