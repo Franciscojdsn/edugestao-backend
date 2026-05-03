@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+export const listarAtividadesSchema = z.object({
+  query: z.object({
+    nome: z.string().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+})
+
 export const criarAtividadeSchema = z.object({
   body: z.object({
     nome: z.string().min(3).max(100, 'Nome excede 100 caracteres').trim(),

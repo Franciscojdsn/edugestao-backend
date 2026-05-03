@@ -6,6 +6,7 @@ import { validate } from '../middlewares/validate'
 import {
   criarAtividadeSchema,
   atualizarAtividadeSchema,
+  listarAtividadesSchema,
   vincularAlunoAtividadeSchema,
   desvincularAlunoAtividadeSchema,
 } from '../schemas/atividadeExtraSchemas'
@@ -16,7 +17,7 @@ router.use(authMiddleware)
 router.use(contextMiddleware)
 
 // CRUD Atividades
-router.get('/', atividadeExtraController.list)
+router.get('/', validate(listarAtividadesSchema), atividadeExtraController.list)
 router.get('/resumo-aluno/:id', atividadeExtraController.getFinanceiroPorAluno)
 router.get('/:id', atividadeExtraController.show)
 router.post('/', validate(criarAtividadeSchema), atividadeExtraController.create)

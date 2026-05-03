@@ -7,7 +7,9 @@ export const atividadeExtraController = {
 
   // GET /atividades
   async list(req: Request, res: Response) {
+    const escolaId = req.user?.escolaId;
     const atividades = await prisma.atividadeExtra.findMany({
+      where: { escolaId },
       select: {
         id: true,
         nome: true,
@@ -37,7 +39,7 @@ export const atividadeExtraController = {
     const idFormatado = Array.isArray(id) ? id[0] : id
 
     const atividade = await prisma.atividadeExtra.findFirst({
-      where: { id: idFormatado }
+      where: { id: idFormatado, escolaId: req.user?.escolaId }
     })
 
     if (!atividade) throw new AppError('Atividade não encontrada', 404)
@@ -48,9 +50,10 @@ export const atividadeExtraController = {
   // POST /atividades
   async create(req: Request, res: Response) {
     const dados = req.body
+    const escolaId = req.user?.escolaId;
 
     const novaAtividade = await prisma.atividadeExtra.create({
-      data: dados
+      data: { ...dados, escolaId }
     })
 
     return res.status(201).json({ status: 'success', data: novaAtividade })
@@ -185,9 +188,9 @@ export const atividadeExtraController = {
 
     // 1. Validação Dupla de Existência
     const [aluno, atividade] = await Promise.all([
-      prisma.aluno.findFirst({ where: { id: alunoId } }),
+      prisma.aluno.findFirst({ where: { id: alunoId, escolaId: req.user?.escolaId } }),
       prisma.atividadeExtra.findFirst({
-        where: { id: atividadeId },
+        where: { id: atividadeId, escolaId: req.user?.escolaId },
         include: { _count: { select: { alunos: { where: { ativo: true } } } } }
       })
     ])

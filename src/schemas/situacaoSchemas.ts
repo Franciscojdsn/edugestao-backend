@@ -19,7 +19,7 @@ export const registrarPagamentoSchema = z.object({
   }),
   body: z.object({
     dataPagamento: z.coerce.date(),
-    valorPago: z.number().positive('O valor pago deve ser maior que zero').max(999999),
+    valorPago: z.coerce.number().positive('O valor pago deve ser maior que zero').max(999999),
     formaPagamento: FormaPagamentoEnum,
     observacoes: z.string().max(500, 'Observação excede 500 caracteres').trim().optional().nullable(),
   }),

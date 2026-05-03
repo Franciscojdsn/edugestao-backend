@@ -22,8 +22,9 @@ export const lancamentoController = {
     async list(req: Request, res: Response) {
         const { tipo, status, mes, ano, page = 1, limit = 20 } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
+        const escolaId = req.user?.escolaId;
 
-        const where: any = {};
+        const where: any = { escolaId, deletedAt: null };
         if (tipo) where.tipo = tipo;
         if (status) where.status = status;
 
@@ -60,8 +61,11 @@ export const lancamentoController = {
         const { id } = req.params;
         const idFormatado = Array.isArray(id) ? id[0] : id;
         const { dataPagamento, formaPagamento } = req.body;
+        const escolaId = req.user?.escolaId;
 
-        const lancamento = await prisma.lancamento.findFirst({ where: { id: idFormatado } });
+        const lancamento = await prisma.lancamento.findFirst({ 
+            where: { id: idFormatado, escolaId } 
+        });
 
         if (!lancamento) throw new AppError('Lançamento não encontrado', 404);
         if (lancamento.status === 'PAGO') throw new AppError('Este lançamento já foi liquidado', 400);
@@ -129,7 +133,12 @@ export const lancamentoController = {
     // Estornar um lançamento pago
     async estornar(req: Request, res: Response) {
         const id = req.params.id as string
-        const lancamento = await prisma.lancamento.findFirst({ where: { id } });
+        const escolaId = req.user?.escolaId;
+        
+        const lancamento = await prisma.lancamento.findFirst({ 
+            where: { id, escolaId } 
+        });
+
         if (!lancamento) throw new AppError('Lançamento não encontrado', 404);
         if (lancamento.status !== 'PAGO') throw new AppError('Apenas lançamentos pagos podem ser estornados', 400);
 

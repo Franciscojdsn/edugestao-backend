@@ -19,7 +19,7 @@ export const situacaoController = {
 
     if (busca) {
       where.OR = [
-        { referencia: { contains: String(busca), mode: 'insensitive' } },
+        { descricao: { contains: String(busca), mode: 'insensitive' } },
         { aluno: { nome: { contains: String(busca), mode: 'insensitive' } } }
       ];
     }
@@ -73,7 +73,7 @@ export const situacaoController = {
         data: {
           tipo: 'ENTRADA',
           valor: valorPago,
-          motivo: `Recebimento: Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+          motivo: `Recebimento: Ref ${boleto.descricao} - Aluno: ${boleto.aluno.nome}`,
           observacao: observacoes || `Pagamento registrado via secretaria.`,
           data: dataPagamento,
           formaPagamento,
@@ -137,7 +137,7 @@ export const situacaoController = {
         data: {
           tipo: 'SAIDA',
           valor: boleto.valorPago || boleto.valorTotal,
-          motivo: `ESTORNO: Ref ${boleto.referencia} - Aluno: ${boleto.aluno.nome}`,
+          motivo: `ESTORNO: Ref ${boleto.descricao} - Aluno: ${boleto.aluno.nome}`,
           observacao: `Motivo: ${motivo}`,
           data: new Date(),
           formaPagamento: 'TRANSFERENCIA', // ou o método que foi devolvido

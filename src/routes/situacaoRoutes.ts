@@ -6,6 +6,7 @@ import { validate } from '../middlewares/validate'
 import {
   listarPagamentosSchema,
   registrarPagamentoSchema,
+  estornarPagamentoSchema,
 } from '../schemas/situacaoSchemas'
 
 const router = Router()
@@ -14,6 +15,6 @@ router.use(contextMiddleware)
 
 router.get('/', validate(listarPagamentosSchema), situacaoController.list)
 router.post('/:id/registrar', validate(registrarPagamentoSchema), situacaoController.registrarPagamento)
-router.patch('/:id/estornar', situacaoController.estornarPagamento);
+router.patch('/:id/estornar', validate(estornarPagamentoSchema), situacaoController.estornarPagamento);
 
 export { router as situacaoRoutes }
