@@ -17,6 +17,7 @@ router.use(contextMiddleware)
 
 // CRUD Atividades
 router.get('/', atividadeExtraController.list)
+router.get('/resumo-aluno/:id', atividadeExtraController.getFinanceiroPorAluno)
 router.get('/:id', atividadeExtraController.show)
 router.post('/', validate(criarAtividadeSchema), atividadeExtraController.create)
 router.put('/:id', validate(atualizarAtividadeSchema), atividadeExtraController.update)

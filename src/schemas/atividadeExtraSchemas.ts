@@ -33,3 +33,7 @@ export const desvincularAlunoAtividadeSchema = z.object({
     alunoId: z.string().uuid('ID do aluno inválido')
   }),
 })
+
+export const resumoFinanceiroAlunoSchema = z.object({
+  params: z.object({ id: z.string().uuid('ID do aluno inválido') })
+})

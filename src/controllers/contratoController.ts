@@ -248,200 +248,139 @@ export const contratoController = {
   async updateFinanceiro(req: Request, res: Response) {
     const { id } = req.params;
     const idFormatado = Array.isArray(id) ? id[0] : id;
-    const { valorMensalidadeBase, descontoMensalidade, diaVencimento, atividadesExtras } = req.body;
+    const { valorMensalidadeBase, descontoMensalidade, diaVencimento, mesesFaturamento, atividadesExtras } = req.body;
     const escolaId = req.user?.escolaId;
     const usuarioId = req.user?.userId;
 
-    console.log(`[UpdateFinanceiro] Iniciando repactuação para Contrato: ${idFormatado} | Escola: ${escolaId}`);
+    if (!escolaId) throw new AppError('Escola não identificada no contexto.', 403);
 
-    if (!escolaId) {
-      throw new AppError('Escola não identificada no contexto de autenticação', 403);
-    }
+    const resultado = await prisma.$transaction(async (tx) => {
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
 
-    try {
-      const resultado = await prisma.$transaction(async (tx) => {
-        const hoje = new Date();
-        hoje.setHours(0, 0, 0, 0);
+      const contratoAtual = await tx.contrato.findFirst({
+        where: { id: idFormatado, escolaId },
+      });
 
-        // 1. Snapshot do Contrato
-        const contratoAtual = await tx.contrato.findFirst({
-          where: { id: idFormatado, escolaId },
-        });
+      if (!contratoAtual || contratoAtual.status === 'CANCELADO') {
+        throw new AppError('Contrato não encontrado ou já encontra-se cancelado.', 404);
+      }
 
-        if (!contratoAtual) {
-          console.error(`[DEBUG-FINANCEIRO] ❌ Contrato ${idFormatado} não localizado para escola ${escolaId}`);
-          throw new AppError('Contrato não encontrado para esta unidade.', 404);
+      // 1. Atualiza o Blueprint do Contrato (incluindo a nova matriz de meses)
+      const contratoAtualizado = await tx.contrato.update({
+        where: { id: contratoAtual.id },
+        data: {
+          valorMensalidadeBase,
+          descontoMensalidade,
+          diaVencimento,
+          mesesFaturamento // O Contrato recebe a nova matriz de repactuação
         }
+      });
 
-        if (contratoAtual.status === 'CANCELADO') {
-          console.error(`[DEBUG-FINANCEIRO] ❌ Tentativa de repactuar contrato CANCELADO: ${idFormatado}`);
-          throw new AppError('Não é possível repactuar um contrato cancelado.', 400);
+      // 2. Repactuação de Atividades Extras
+      await tx.alunoAtividadeExtra.deleteMany({
+        where: { alunoId: contratoAtual.alunoId }
+      });
+
+      if (atividadesExtras?.length > 0) {
+        const itensParaCriar = atividadesExtras.filter((item: any) => item.ativo).map((item: any) => ({
+          alunoId: contratoAtual.alunoId,
+          atividadeExtraId: item.atividadeExtraId,
+          ativo: true,
+          dataInicio: hoje,
+          escolaId,
+        }));
+        if (itensParaCriar.length > 0) await tx.alunoAtividadeExtra.createMany({ data: itensParaCriar });
+      }
+
+      const atividadesVigor = await tx.alunoAtividadeExtra.findMany({
+        where: { alunoId: contratoAtual.alunoId, ativo: true },
+        include: { atividadeExtra: { select: { valor: true } } }
+      });
+      const valorTotalAtividades = atividadesVigor.reduce((acc, item) => acc + (Number(item.atividadeExtra.valor) || 0), 0);
+      const novoValorTotalBoleto = Number(valorMensalidadeBase) + valorTotalAtividades - Number(descontoMensalidade);
+
+      // 3. Cancela APENAS boletos pendentes futuros do livro caixa
+      const boletosParaCancelar = await tx.boletos.findMany({
+        where: {
+          alunoId: contratoAtual.alunoId,
+          status: 'PENDENTE',
+          dataVencimento: { gte: hoje },
+          escolaId
         }
+      });
 
-        console.log(`[DEBUG-FINANCEIRO] 🔍 Contrato encontrado. Aluno ID: ${contratoAtual.alunoId}`);
-
-        // 2. Atualizar valores do Contrato com Garantia de Tipos (Number)
-        console.log(`[DEBUG-FINANCEIRO] 📝 Atualizando termos do contrato: Base=${valorMensalidadeBase}, Desconto=${descontoMensalidade}`);
-        const contratoAtualizado = await tx.contrato.update({
-          where: { id: contratoAtual.id },
-          data: {
-            valorMensalidadeBase: Number(valorMensalidadeBase),
-            descontoMensalidade: Number(descontoMensalidade),
-            diaVencimento: Number(diaVencimento)
-          }
+      if (boletosParaCancelar.length > 0) {
+        await tx.boletos.updateMany({
+          where: { id: { in: boletosParaCancelar.map(b => b.id) } },
+          data: { status: 'CANCELADO', observacoes: 'Cancelamento por repactuação financeira.' }
         });
+      }
 
-        // 3. Atividades Extras: Padrão 'Limpar e Recriar' para estabilidade
-        console.log(`[DEBUG-FINANCEIRO] 🧹 Limpando e recriando atividades extras para Aluno: ${contratoAtual.alunoId}`);
-        await tx.alunoAtividadeExtra.deleteMany({
-          where: { alunoId: contratoAtual.alunoId }
-        });
+      // 4. Geração Estrita baseada na Nova Matriz (Sem saltos cegos para Dezembro)
+      const boletosGerados = [];
+      const mesAtualNum = hoje.getMonth() + 1;
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-        if (atividadesExtras && Array.isArray(atividadesExtras)) {
-          const itensParaCriar = atividadesExtras
-            .filter((item: any) => item.ativo)
-            .map((item: any) => ({
-              alunoId: contratoAtual.alunoId,
-              atividadeExtraId: item.atividadeExtraId,
-              ativo: true,
-              dataInicio: hoje,
-              escolaId: escolaId as string,
-            }));
+      for (const mesAtual of mesesFaturamento) {
+        // Regra de Negócio: Não regerar boletos para meses passados em uma repactuação
+        if (mesAtual < mesAtualNum) continue;
 
-          if (itensParaCriar.length > 0) {
-            console.log(`[DEBUG-FINANCEIRO] 📥 Inserindo ${itensParaCriar.length} novas atividades extras ativas.`);
-            await tx.alunoAtividadeExtra.createMany({
-              data: itensParaCriar
-            });
-          }
-        }
-
-        const atividadesVigor = await tx.alunoAtividadeExtra.findMany({
+        const existe = await tx.boletos.findFirst({
           where: {
             alunoId: contratoAtual.alunoId,
-            ativo: true,
-          },
-          include: {
-            atividadeExtra: { select: { valor: true } }
+            mesReferencia: mesAtual,
+            anoReferencia: contratoAtual.anoFaturamento,
+            status: { in: ['PAGO', 'VENCIDO'] as any },
+            escolaId
           }
         });
 
-        const valorTotalAtividades = atividadesVigor.reduce((acc, item) => {
-          return acc + (Number(item.atividadeExtra.valor) || 0);
-        }, 0);
+        if (existe) continue;
 
-        const novoValorTotalBoleto = Number(valorMensalidadeBase) + Number(valorTotalAtividades) - Number(descontoMensalidade);
-        console.log(`[DEBUG-FINANCEIRO] 🧮 Recálculo: Base(${valorMensalidadeBase}) + Extras(${valorTotalAtividades}) - Desc(${descontoMensalidade}) = Total(${novoValorTotalBoleto})`);
+        const referencia = `${mesesNomes[mesAtual - 1]}/${contratoAtual.anoFaturamento}`;
+        const dataVencimentoNovo = new Date(Date.UTC(contratoAtual.anoFaturamento, mesAtual - 1, diaVencimento, 12, 0, 0));
+        
+        if (dataVencimentoNovo.getUTCMonth() !== (mesAtual - 1)) dataVencimentoNovo.setUTCDate(0);
 
-        // 4. Cancelar Boletos Pendentes Futuros
-        console.log(`[DEBUG-FINANCEIRO] 🚫 Cancelando boletos pendentes futuros...`);
-        const boletosParaCancelar = await tx.boletos.findMany({
-          where: {
-            alunoId: contratoAtual.alunoId,
-            status: 'PENDENTE',
-            dataVencimento: { gte: hoje },
-            deletedAt: null
-          }
-        });
-
-        if (boletosParaCancelar.length > 0) {
-          await tx.boletos.updateMany({
-            where: { id: { in: boletosParaCancelar.map(b => b.id) } },
-            data: {
-              status: 'CANCELADO',
-              observacoes: 'Cancelamento por repactuação financeira (Update Financeiro)'
-            }
-          });
-        }
-
-        // 5. Gerar Novos Boletos até Dezembro
-        const mesAtual = hoje.getMonth() + 1;
-        const anoAtual = hoje.getFullYear();
-        const boletosGerados = [];
-        console.log(`[DEBUG-FINANCEIRO] 📅 Gerando novos boletos do mês ${mesAtual} até Dezembro/${anoAtual}`);
-
-        for (let m = mesAtual; m <= 12; m++) {
-          const boletoExistente = await tx.boletos.findFirst({
-            where: {
-              alunoId: contratoAtual.alunoId,
-              mesReferencia: m,
-              anoReferencia: anoAtual,
-              status: { in: ['PAGO', 'VENCIDO'] as any },
-              deletedAt: null
-            }
-          });
-
-          if (boletoExistente) continue;
-
-          const referencia = `${String(m).padStart(2, '0')}/${anoAtual}`;
-          const dataVencimentoNovo = new Date(anoAtual, m - 1, Number(diaVencimento));
-
-          const novoBoleto = await tx.boletos.create({
-            data: {
-              alunoId: contratoAtual.alunoId,
-              escolaId,
-              referencia,
-              mesReferencia: m,
-              anoReferencia: anoAtual,
-              valorBase: Number(valorMensalidadeBase),
-              valorAtividades: Number(valorTotalAtividades),
-              valorTotal: Number(novoValorTotalBoleto),
-              dataVencimento: dataVencimentoNovo,
-              status: 'PENDENTE',
-              descricao: `Mensalidade Escolar (Repactuada) - Ref: ${referencia}`
-            }
-          });
-          boletosGerados.push(novoBoleto);
-        }
-        console.log(`[DEBUG-FINANCEIRO] ✅ Sucesso: ${boletosParaCancelar.length} boletos cancelados e ${boletosGerados.length} novos gerados.`);
-
-        await tx.logAuditoria.create({
+        const novoBoleto = await tx.boletos.create({
           data: {
-            entidade: 'Contrato',
-            entidadeId: contratoAtual.id,
-            acao: 'UPDATE_FINANCEIRO',
-            usuarioId: usuarioId!,
+            alunoId: contratoAtual.alunoId,
             escolaId,
-            ip: req.ip || null,
-            dadosAntigos: JSON.parse(JSON.stringify({
-              valorMensalidadeBase: contratoAtual.valorMensalidadeBase,
-              descontoMensalidade: contratoAtual.descontoMensalidade,
-              diaVencimento: contratoAtual.diaVencimento
-            })),
-            dadosNovos: JSON.parse(JSON.stringify({
-              valorMensalidadeBase: Number(valorMensalidadeBase),
-              descontoMensalidade: Number(descontoMensalidade),
-              diaVencimento: Number(diaVencimento),
-              atividadesExtras,
-              boletosCancelados: boletosParaCancelar.length,
-              boletosGerados: boletosGerados.length
-            }))
+            mesReferencia: mesAtual,
+            anoReferencia: contratoAtual.anoFaturamento,
+            valorBase: Number(valorMensalidadeBase),
+            valorAtividades: valorTotalAtividades,
+            valorTotal: novoValorTotalBoleto,
+            dataVencimento: dataVencimentoNovo,
+            status: 'PENDENTE',
+            descricao: `${referencia}`
           }
         });
+        boletosGerados.push(novoBoleto);
+      }
 
-        return {
-          contrato: contratoAtualizado,
-          sumario: {
-            cancelados: boletosParaCancelar.length,
-            gerados: boletosGerados.length
-          }
-        };
+      await tx.logAuditoria.create({
+        data: {
+          entidade: 'Contrato',
+          entidadeId: contratoAtual.id,
+          acao: 'UPDATE_FINANCEIRO',
+          usuarioId: usuarioId!,
+          escolaId,
+          dadosAntigos: JSON.parse(JSON.stringify({ matrizAnterior: contratoAtual.mesesFaturamento })),
+          dadosNovos: JSON.parse(JSON.stringify({ matrizNova: mesesFaturamento, boletosGerados: boletosGerados.length }))
+        }
       });
 
-      return res.status(200).json({
-        message: 'Repactuação financeira e regeneração de boletos concluídas com sucesso.',
-        data: resultado
-      });
-    } catch (error: any) {
-      console.error('[UpdateFinanceiro Critical Error]:', error);
-      if (error instanceof AppError) throw error;
-      throw new AppError(error.message || 'Erro ao processar repactuação financeira.', 500);
-    }
+      return { contrato: contratoAtualizado, sumario: { cancelados: boletosParaCancelar.length, gerados: boletosGerados.length } };
+    });
+
+    return res.status(200).json({ message: 'Repactuação concluída.', data: resultado });
   },
 
   /**
    * POST /contratos/:id/reativar
-   * Reativa um contrato suspenso, realoca o aluno em uma turma e gera boletos futuros.
+   * Reativa e gera boletos lendo a matriz gravada no Contrato.
    */
   async reativarContrato(req: Request, res: Response) {
     const { id } = req.params;
@@ -449,106 +388,77 @@ export const contratoController = {
     const escolaId = req.user?.escolaId;
     const usuarioId = req.user?.userId;
 
-    if (!escolaId) {
-      throw new AppError('Escola não identificada no contexto de autenticação', 403);
-    }
+    if (!escolaId) throw new AppError('Escola não identificada', 403);
 
     const resultado = await prisma.$transaction(async (tx) => {
       const hoje = new Date();
 
-      // 1. Buscar contrato e validar se está suspenso
       const contratoAtual = await tx.contrato.findFirst({
         where: { id: id as string, escolaId, status: 'SUSPENSO' },
-        include: {
-          aluno: {
-            include: {
-              atividadesExtra: {
-                where: { ativo: true },
-                include: { atividadeExtra: true }
-              }
-            }
-          }
-        }
+        include: { aluno: { include: { atividadesExtra: { where: { ativo: true }, include: { atividadeExtra: true } } } } }
       });
 
-      if (!contratoAtual) {
-        throw new AppError('Contrato suspenso não encontrado ou já está ativo.', 404);
-      }
+      if (!contratoAtual) throw new AppError('Contrato suspenso não encontrado.', 404);
 
-      // 2. Validar se a nova turma existe na escola
-      const turmaAlvo = await tx.turma.findFirst({
-        where: { id: turmaId, escolaId }
-      });
+      const turmaAlvo = await tx.turma.findFirst({ where: { id: turmaId, escolaId } });
+      if (!turmaAlvo) throw new AppError('Turma não encontrada.', 404);
 
-      if (!turmaAlvo) {
-        throw new AppError('Turma de realocação não encontrada nesta escola.', 404);
-      }
-
-      // 3. Atualizar Contrato (Limpar dataFim e reativar flags)
       const contratoAtivado = await tx.contrato.update({
         where: { id: contratoAtual.id },
-        data: {
-          status: 'ATIVO',
-          ativo: true,
-          dataFim: null
-        }
+        data: { status: 'ATIVO', ativo: true, dataFim: null }
       });
 
-      // 4. Vincular Aluno à nova Turma
       await tx.aluno.update({
         where: { id: contratoAtual.alunoId },
         data: { turmaId }
       });
 
-      // 5. Gerar novos boletos para os meses restantes até Dezembro
-      const valorAtividades = contratoAtual.aluno.atividadesExtra.reduce((acc, item) => {
-        return acc + (Number(item.atividadeExtra.valor) || 0);
-      }, 0);
-
-      // Cálculo da Mensalidade Líquida (Base - Desconto)
+      const valorAtividades = contratoAtual.aluno.atividadesExtra.reduce((acc, item) => acc + (Number(item.atividadeExtra.valor) || 0), 0);
       const valorBaseNet = Number(contratoAtual.valorMensalidadeBase) - (Number(contratoAtual.descontoMensalidade) || 0);
       const valorTotal = valorBaseNet + valorAtividades;
 
-      const mesAtual = hoje.getMonth() + 1;
-      const anoAtual = hoje.getFullYear();
+      const mesAtualNum = hoje.getMonth() + 1;
       const boletosGerados = [];
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-      for (let m = mesAtual; m <= 12; m++) {
-        // Verifica se já existe um boleto ativo para evitar duplicidade na reativação
+      // Loop iterando APENAS sobre o blueprint do Contrato
+      for (const mesAtual of contratoAtual.mesesFaturamento) {
+        if (mesAtual < mesAtualNum) continue; // Não fatura retroativo na reativação
+
         const existe = await tx.boletos.findFirst({
           where: {
             alunoId: contratoAtual.alunoId,
-            mesReferencia: m,
-            anoReferencia: anoAtual,
-            status: { not: 'CANCELADO' as any },
-            deletedAt: null
+            mesReferencia: mesAtual,
+            anoReferencia: contratoAtual.anoFaturamento,
+            status: { not: 'CANCELADO' },
+            escolaId
           }
         });
 
         if (existe) continue;
 
-        const referencia = `${String(m).padStart(2, '0')}/${anoAtual}`;
-        const dataVencimento = new Date(anoAtual, m - 1, contratoAtual.diaVencimento);
+        const referencia = `${mesesNomes[mesAtual - 1]}/${contratoAtual.anoFaturamento}`;
+        const dataVencimento = new Date(Date.UTC(contratoAtual.anoFaturamento, mesAtual - 1, contratoAtual.diaVencimento, 12, 0, 0));
+        
+        if (dataVencimento.getUTCMonth() !== (mesAtual - 1)) dataVencimento.setUTCDate(0);
 
         const novoBoleto = await tx.boletos.create({
           data: {
             alunoId: contratoAtual.alunoId,
             escolaId,
-            referencia,
-            mesReferencia: m,
-            anoReferencia: anoAtual,
+            mesReferencia: mesAtual,
+            anoReferencia: contratoAtual.anoFaturamento,
             valorBase: valorBaseNet,
             valorAtividades,
             valorTotal,
             dataVencimento,
             status: 'PENDENTE',
-            descricao: `Mensalidade Escolar (Reativada) - Ref: ${referencia}`
+            descricao: `${referencia}`
           }
         });
         boletosGerados.push(novoBoleto);
       }
 
-      // 6. Gravar Auditoria
       await tx.logAuditoria.create({
         data: {
           entidade: 'Contrato',
@@ -556,24 +466,13 @@ export const contratoController = {
           acao: 'REATIVACAO_CONTRATO',
           usuarioId: usuarioId!,
           escolaId,
-          ip: req.ip || null,
-          dadosNovos: JSON.parse(JSON.stringify({
-            turmaId,
-            boletosGerados: boletosGerados.length
-          }))
+          dadosNovos: JSON.parse(JSON.stringify({ turmaId, boletosGerados: boletosGerados.length }))
         }
       });
 
-      return {
-        contrato: contratoAtivado,
-        boletosGerados: boletosGerados.length,
-        turma: turmaAlvo.nome
-      };
+      return { contrato: contratoAtivado, boletosGerados: boletosGerados.length, turma: turmaAlvo.nome };
     });
 
-    return res.status(200).json({
-      message: 'Contrato reativado, aluno enturmado e cobranças geradas com sucesso.',
-      data: resultado
-    });
+    return res.status(200).json({ message: 'Contrato reativado.', data: resultado });
   },
 }

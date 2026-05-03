@@ -1,27 +1,29 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/prisma';
 import { AppError } from '../middlewares/errorHandler';
+import { getRequiredEscolaId } from '../utils/context'; // Requisito arquitetural de segurança
 
 export const gerarBoletosController = {
   /**
    * POST /contratos/:contratoId/gerar-boletos
-   * Motor Atômico de Geração Recorrente
+   * Motor Atômico de Geração Recorrente (Seguro e Isolado)
    */
   async gerar(req: Request, res: Response) {
     const { contratoId } = req.params;
-    const { meses, anoInicio } = req.body;
+    const escolaId = getRequiredEscolaId(); // Trava de Tenant
 
-    // 1. Busca Segura via Extensão Prisma (O escolaId é garantido nos bastidores)
+    // 1. Busca do Blueprint Financeiro (O Contrato)
     const contrato = await prisma.contrato.findFirst({
-      where: { 
-        id: String(contratoId),
+      where: {
+        id: Array.isArray(contratoId) ? contratoId[0] : contratoId,
+        escolaId,
         ativo: true
       },
       include: {
         aluno: {
           include: {
             atividadesExtra: {
-              where: { ativo: true },
+              where: { ativo: true, escolaId },
               include: { atividadeExtra: true }
             }
           }
@@ -29,120 +31,109 @@ export const gerarBoletosController = {
       }
     });
 
-    if (!contrato) throw new AppError('Contrato não encontrado ou inativo.', 404);
+    if (!contrato) {
+      throw new AppError('Acesso Negado: Contrato não encontrado ou inativo.', 404);
+    }
 
-    // 2. Cálculo dos Valores (Anti-fraude: Feito 100% no servidor)
+    if (!contrato.mesesFaturamento || (Array.isArray(contrato.mesesFaturamento) && contrato.mesesFaturamento.length === 0)) {
+      throw new AppError('Inconsistência de Dados: O contrato não possui meses de faturamento definidos.', 400);
+    }
+
     const valorBaseNet = Number(contrato.valorMensalidadeBase) - Number(contrato.descontoMensalidade);
-    
-    const valorAtividades = contrato.aluno.atividadesExtra.reduce((acc, curr) => {
-      return acc + Number(curr.atividadeExtra.valor);
-    }, 0);
-
+    const valorAtividades = contrato.aluno.atividadesExtra.reduce((acc, curr) => acc + Number(curr.atividadeExtra.valor), 0);
     const valorTotal = valorBaseNet + valorAtividades;
 
-    // 3. Transação Atômica: Se falhar em 1 mês, cancela todos.
     const resultado = await prisma.$transaction(async (tx) => {
-      const promessasBoletos = [];
+      const boletosParaCriar = [];
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-      // Lógica de contagem reversa: o último boleto é sempre Dezembro (12)
-      const mesFim = 12;
-      const mesMatricula = mesFim - meses; // Ex: 12 - 8 = 4 (Mês da Matrícula)
-      const startMonth = mesMatricula + 1;  // Ex: 5 (Mês da primeira parcela)
+      // 2. Iteração segura baseada EXCLUSIVAMENTE no banco de dados
+      for (const mesAtual of contrato.mesesFaturamento) {
+        const referencia = `${mesesNomes[mesAtual - 1]}/${contrato.anoFaturamento}`;
 
-      // Atualiza o registro da Matrícula para salvar o mês que foi considerado como taxa de matrícula
-      await tx.matricula.update({
-        where: { alunoId: contrato.alunoId },
-        data: { dataMatricula: new Date(anoInicio, mesMatricula - 1, 1) }
-      });
+        const dataVencimento = new Date(Date.UTC(contrato.anoFaturamento, mesAtual - 1, contrato.diaVencimento, 12, 0, 0));
 
-      for (let i = 0; i < meses; i++) {
-        const m = startMonth + i;
-        const anoAtual = anoInicio;
-
-        const referencia = `${String(m).padStart(2, '0')}/${anoAtual}`;
-        
-        // Evitando o bug do dia 31 em meses curtos
-        const dataVencimento = new Date(anoAtual, m - 1, contrato.diaVencimento);
-        if (dataVencimento.getMonth() !== (m - 1)) {
-          // Se "pulou" de mês, retrocede para o último dia do mês desejado
-          dataVencimento.setDate(0); 
+        // Proteção contra meses curtos (Fev 30 -> Fev 28)
+        if (dataVencimento.getUTCMonth() !== (mesAtual - 1)) {
+          dataVencimento.setUTCDate(0);
         }
 
-        // Verifica se já existe um boleto para este mês/ano e aluno (Prevenção de duplicidade)
         const existe = await tx.boletos.findFirst({
           where: {
             alunoId: contrato.alunoId,
-            mesReferencia: m,
-            anoReferencia: anoAtual,
+            mesReferencia: mesAtual,
+            anoReferencia: contrato.anoFaturamento,
+            escolaId,
             status: { not: 'CANCELADO' }
           }
         });
 
-        if (existe) continue; // Pula o mês para não gerar cobrança duplicada
+        if (existe) continue;
 
-        promessasBoletos.push(
-          tx.boletos.create({
-            data: {
-              escolaId: contrato.escolaId, // Injetado automaticamente pela extensão do Prisma
-              alunoId: contrato.alunoId,
-              referencia,
-              mesReferencia: m,
-              anoReferencia: anoAtual,
-              valorBase: valorBaseNet,
-              valorAtividades,
-              valorTotal,
-              dataVencimento,
-              status: 'PENDENTE',
-              descricao: `Mensalidade Escolar - Ref: ${referencia}`
-              // escolaId é injetado automaticamente pela extensão do Prisma
-            }
-          })
-        );
+        boletosParaCriar.push({
+          escolaId,
+          alunoId: contrato.alunoId,
+          mesReferencia: mesAtual,
+          anoReferencia: contrato.anoFaturamento,
+          valorBase: valorBaseNet,
+          valorAtividades,
+          valorTotal,
+          dataVencimento,
+          status: 'PENDENTE' as const,
+          descricao: `${referencia}`
+        });
       }
 
-      return await Promise.all(promessasBoletos);
+      if (boletosParaCriar.length > 0) {
+        await tx.boletos.createMany({ data: boletosParaCriar });
+      }
+
+      return { count: boletosParaCriar.length };
     });
 
-    return res.status(201).json({
-      status: 'success',
-      message: `${resultado.length} boletos foram gerados com sucesso.`,
-      data: resultado
-    });
+    return res.status(201).json({ status: 'success', data: resultado });
   },
 
   /**
    * POST /boletos/avulso
-   * Gera uma cobrança única (Ex: Fardamento, Material, Taxa extra)
+   * Gera uma cobrança única auditável e atrelada ao tenant
    */
   async gerarAvulso(req: Request, res: Response) {
     const dados = req.body;
+    const escolaId = getRequiredEscolaId();
 
     const aluno = await prisma.aluno.findFirst({
-      where: { id: dados.alunoId }
+      where: {
+        id: dados.alunoId,
+        escolaId // TRAVA DE SEGURANÇA MULTI-TENANT
+      }
     });
 
-    if (!aluno) throw new AppError('Aluno não encontrado.', 404);
+    if (!aluno) throw new AppError('Aluno não encontrado no seu ambiente de gestão.', 404);
+
+    const dVenc = new Date(dados.dataVencimento);
+    const mRef = dVenc.getUTCMonth() + 1;
+    const aRef = dVenc.getUTCFullYear();
 
     const novoBoleto = await prisma.boletos.create({
       data: {
-        escolaId: aluno.escolaId, // Injetado automaticamente pela extensão do Prisma
+        escolaId,
         alunoId: dados.alunoId,
-        referencia: dados.referencia,
-        mesReferencia: dados.dataVencimento.getMonth() + 1,
-        anoReferencia: dados.dataVencimento.getFullYear(),
+        mesReferencia: mRef,
+        anoReferencia: aRef,
         valorBase: dados.valorTotal,
         valorAtividades: 0,
         valorTotal: dados.valorTotal,
-        dataVencimento: dados.dataVencimento,
+        dataVencimento: dVenc,
         status: 'PENDENTE',
         descricao: dados.descricao,
-        observacoes: dados.observacoes
+        observacoes: dados.observacoes || ''
       }
     });
 
     return res.status(201).json({
       status: 'success',
-      message: 'Cobrança avulsa gerada com sucesso.',
+      message: 'Cobrança avulsa gerada e registrada com sucesso.',
       data: novoBoleto
     });
   }

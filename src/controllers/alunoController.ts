@@ -51,16 +51,19 @@ export const alunoController = {
    */
   async show(req: Request, res: Response) {
     const { id } = req.params;
-    const idFormatado = Array.isArray(id) ? id[0] : id;
+    const idFormatado = String(id); // Garantir UUID string[cite: 7]
 
-    // Usamos findFirst para garantir compatibilidade de injeção da extensão
     const aluno = await prisma.aluno.findFirst({
       where: { id: idFormatado },
       include: {
         endereco: true,
         turma: true,
         responsaveis: true,
-        contrato: true
+        contrato: true,
+        boletos: {
+          where: { deletedAt: null }, // Respeita Soft Delete[cite: 5]
+          orderBy: { dataVencimento: 'asc' }
+        }
       }
     });
 

@@ -91,7 +91,7 @@ export const matriculaController = {
           anoLetivo: turma.anoLetivo
         }
       });
-      
+
       return {
         matriculaId: novaMatricula.id,
         alunoId: novoAluno.id,
@@ -124,7 +124,7 @@ export const matriculaController = {
 
     // 3. Busca da Matrícula e Aluno (Isolamento de Dados)
     const matricula = await prisma.matricula.findUnique({
-      where: { 
+      where: {
         id: Array.isArray(matriculaId) ? matriculaId[0] : matriculaId
       },
       include: { aluno: { select: { enderecoId: true } } }
@@ -191,23 +191,20 @@ export const matriculaController = {
     const dados = req.body;
     const escolaId = getRequiredEscolaId();
 
-    // 1. Validar Matrícula e Buscar Aluno (Segurança Multi-tenant)
     const matricula = await prisma.matricula.findFirst({
       where: { id: idFormatado, escolaId },
       include: { aluno: true, contrato: true }
     });
-    if (!matricula) throw new AppError('Matrícula não encontrada.', 404);
 
-    // 2. Calcular Atividades Extras (Segurança: Busca valor real do Banco)
+    if (!matricula) throw new AppError('Matrícula não encontrada no escopo deste tenant.', 404);
+
     const atividades = await prisma.atividadeExtra.findMany({
-      where: { id: { in: dados.atividadesExtrasIds } }
+      where: { id: { in: dados.atividadesExtrasIds }, escolaId }
     });
     const valorTotalExtras = atividades.reduce((acc, curr) => acc + Number(curr.valor), 0);
 
-    // 3. TRANSAÇÃO FINANCEIRA ATÔMICA
     const resultado = await prisma.$transaction(async (tx) => {
-
-      // A. Criar o Contrato
+      // 1. Geração do Contrato com qtd baseada no tamanho do array
       const contrato = await tx.contrato.create({
         data: {
           escolaId,
@@ -218,39 +215,57 @@ export const matriculaController = {
           valorMensalidadeBase: dados.valorMensalidadeBase,
           descontoMensalidade: dados.descontoMensalidade,
           diaVencimento: dados.diaVencimento,
-          quantidadeParcelas: dados.qtdParcelas,
+          anoFaturamento: dados.anoReferencia,
+          mesesFaturamento: dados.mesesSelecionados,
           status: 'ATIVO',
         }
       });
 
-      // B. Gerar Parcelas (Boletos)
+      // 2. Vínculo Pedagógico e Financeiro das Atividades Extras
+      if (dados.atividadesExtrasIds?.length > 0) {
+        await tx.alunoAtividadeExtra.createMany({
+          data: dados.atividadesExtrasIds.map((atvId: string) => ({
+            alunoId: matricula.alunoId,
+            atividadeExtraId: atvId,
+            escolaId,
+            ativo: true,
+            dataInicio: new Date(),
+          })),
+        });
+      }
+
+      // 3. Geração Segura do Livro de Recebíveis iterando o array explícito
       const boletosCriados = [];
       const valorMensalFinal = (dados.valorMensalidadeBase - dados.descontoMensalidade) + valorTotalExtras;
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-      for (let i = 0; i < dados.qtdParcelas; i++) {
-        const dataVencimento = new Date(dados.dataInicioPagamento);
-        // Adicionamos +1 ao índice 'i' para que a primeira parcela (i=0) seja no mês seguinte
-        dataVencimento.setMonth(dataVencimento.getMonth() + i + 1);
-        dataVencimento.setDate(dados.diaVencimento);
+      for (const mesAtual of dados.mesesSelecionados) {
+        const referencia = `${mesesNomes[mesAtual - 1]}/${dados.anoReferencia}`;
+
+        const dataVencimento = new Date(Date.UTC(dados.anoReferencia, mesAtual - 1, dados.diaVencimento, 12, 0, 0));
+
+        if (dataVencimento.getUTCMonth() !== (mesAtual - 1)) {
+          dataVencimento.setUTCDate(0);
+        }
 
         const boleto = await tx.boletos.create({
           data: {
             alunoId: matricula.alunoId,
             escolaId,
-            referencia: `Parcela ${i + 1}/${dados.qtdParcelas}`,
-            mesReferencia: dataVencimento.getMonth() + 1,
-            anoReferencia: dataVencimento.getFullYear(),
+            mesReferencia: mesAtual,
+            anoReferencia: dados.anoReferencia,
             valorBase: dados.valorMensalidadeBase - dados.descontoMensalidade,
             valorAtividades: valorTotalExtras,
             valorTotal: valorMensalFinal,
             dataVencimento,
             status: 'PENDENTE',
+            descricao: `${referencia}`
           }
         });
         boletosCriados.push(boleto);
       }
 
-      // C. Atualizar o registro da Matrícula para Finalizada
+      // 4. Efetivação da Matrícula
       await tx.matricula.update({
         where: { id: idFormatado },
         data: {
@@ -264,19 +279,18 @@ export const matriculaController = {
       return { contratoId: contrato.id, parcelas: boletosCriados.length };
     });
 
-    // 4. Auditoria (Opcional: Disparar log de fechamento de contrato)
     await logger.audit({
       entidade: 'Contrato',
-      acao: 'CREATE',
+      acao: 'CREATE_MATRICULA_FINALIZADA',
       entidadeId: resultado.contratoId,
       escolaId,
       usuarioId: req.user?.userId,
-      dadosNovos: { matriculaId, parcelas: resultado.parcelas }
+      dadosNovos: { matriculaId, parcelasGeradas: resultado.parcelas }
     });
 
     return res.status(201).json({
       status: 'success',
-      message: 'Matrícula e Contrato finalizados com sucesso.',
+      message: 'Matrícula e Contrato selados com sucesso.',
       data: resultado
     });
   },

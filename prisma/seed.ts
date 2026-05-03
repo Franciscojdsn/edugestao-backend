@@ -46,14 +46,14 @@ async function main() {
     });
 
     const usuario = await prisma.usuario.upsert({
-        where: { email: 'admin@edugestao.com.br' },
+        where: { email: 'admin@escola.com' },
         update: {
             senha: senhaHash,
             nome: 'Diretor Administrativo',
             escolaId: escola.id,
         },
         create: {
-            email: 'admin@edugestao.com.br',
+            email: 'admin@escola.com',
             senha: senhaHash,
             nome: 'Diretor Administrativo',
             role: 'ADMIN',
@@ -139,15 +139,17 @@ async function main() {
     // ---------------------------------------------------------
     const alunoId = faker.string.uuid();
     const respId = faker.string.uuid();
-    const matriculaNum = '26.0001';
+    const numeroMatricula = '26.0002';
 
     await prisma.$transaction(async (tx) => {
         const aluno = await tx.aluno.create({
             data: {
                 id: alunoId,
                 nome: faker.person.fullName(),
-                numeroMatricula: matriculaNum,
+                numeroMatricula: numeroMatricula,
                 cpf: faker.string.numeric(11),
+                dataNascimento: faker.date.birthdate({ min: 6, max: 17, mode: 'age' }),
+                genero: faker.helpers.arrayElement(['MASCULINO', 'FEMININO']),
                 turmaId: turma.id,
                 escolaId,
                 enderecoId: endereco.id
@@ -176,7 +178,8 @@ async function main() {
                 valorMensalidadeBase: 1200.00,
                 valorMatricula: 500.00,
                 diaVencimento: 10,
-                quantidadeParcelas: 12,
+                anoFaturamento: 2026,
+                mesesFaturamento: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as any,
                 escolaId,
             },
         });
@@ -184,12 +187,12 @@ async function main() {
         await tx.matricula.create({
             data: {
                 id: faker.string.uuid(),
-                numeroMatricula: matriculaNum,
+                numeroMatricula: numeroMatricula,
                 anoLetivo: 2026,
                 status: 'APROVADA',
                 alunoId,
                 turmaId: turma.id,
-                ResponsavelId: respId,
+                responsavelId: respId,
                 escolaId,
                 contratoId: contrato.id
             }
@@ -214,7 +217,6 @@ async function main() {
     await prisma.boletos.create({
         data: {
             id: faker.string.uuid(),
-            referencia: `Jan/2026`,
             mesReferencia: 1,
             anoReferencia: 2026,
             valorBase: 1200.00,
@@ -229,7 +231,7 @@ async function main() {
     await prisma.transacao.create({
         data: {
             id: txId,
-            motivo: `Mensalidade Aluno ${matriculaNum}`,
+            motivo: `Mensalidade Aluno ${numeroMatricula}`,
             valor: 1200.00,
             tipo: 'ENTRADA',
             data: new Date(),

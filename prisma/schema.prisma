@@ -162,7 +162,7 @@ model Aluno {
   atividadesExtra AlunoAtividadeExtra[]
   frequencias     Frequencia[]
   comunicados     Comunicado[]
-  matricula       Matricula?
+  matriculas      Matricula[]
   rematriculas    Rematricula[]
   ocorrencias     Ocorrencia[]
   lancamentos     Lancamento[]
@@ -241,7 +241,9 @@ model Contrato {
   descontoMensalidade  Decimal @default(0) @db.Decimal(10, 2)
 
   diaVencimento      Int       @default(10)
-  quantidadeParcelas Int       @default(12)
+  anoFaturamento     Int       @db.SmallInt
+  mesesFaturamento   Int[]
+
   dataInicio         DateTime  @default(now())
   dataFim            DateTime? @db.Date
 
@@ -347,7 +349,6 @@ model Boletos {
   id String @id @default(uuid())
 
   // Identificação
-  referencia    String @db.VarChar(50) // Ex: "Janeiro/2026"
   mesReferencia Int    @db.SmallInt
   anoReferencia Int    @db.SmallInt
 
@@ -366,14 +367,14 @@ model Boletos {
 
   // Informações adicionais
   formaPagamento FormaPagamento?
-  comprovante    String?         @db.VarChar(500) // Aumentado para suportar URLs assinadas longas (S3/CloudFront)
+  comprovante    String?         @db.VarChar(500)
   observacoes    String?         @db.VarChar(500)
   descricao      String?         @db.VarChar(255)
 
   // Integração Asaas
   asaasId   String? @unique @db.VarChar(100)
   boletoUrl String? @db.VarChar(500)
-  pixQrCode String? @db.Text // Text é melhor para QR Code Base64 longo
+  pixQrCode String? @db.Text
 
   // Relacionamentos
   alunoId String
@@ -389,8 +390,9 @@ model Boletos {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@unique([alunoId, referencia, escolaId]) // Impede a geração de boletos duplicados para o mesmo aluno/período
-  @@index([escolaId]) // Index obrigatório para Multi-tenant
+  // Trava corrigida: Impede duplicidade do MESMO MÊS para o mesmo aluno
+  @@unique([alunoId, mesReferencia, anoReferencia, escolaId])
+  @@index([escolaId])
   @@index([alunoId])
   @@index([status])
   @@index([dataVencimento])
@@ -889,25 +891,25 @@ enum Destinatarios {
 model Matricula {
   id String @id @default(uuid())
 
-  // Dados principais
-  numeroMatricula String          @unique
-  dataMatricula   DateTime        @default(now())
-  anoLetivo       Int
-  status          StatusMatricula @default(EM_ANDAMENTO)
+  // Dados principais (Removido o @unique isolado)
+  numeroMatricula String   @db.VarChar(7) // Ex: "26.0001"
+  dataMatricula   DateTime @db.Date   @default(now()) 
+  anoLetivo       Int @db.SmallInt
+  status          StatusMatricula @default(EM_ANDAMENTO) 
 
   // Etapas do processo
   etapaAtual          EtapaMatricula @default(DADOS_PESSOAIS)
-  dadosPessoaisOk     Boolean        @default(false)
-  documentosOk        Boolean        @default(false)
-  responsaveisOk      Boolean        @default(false)
-  contratoAssinado    Boolean        @default(false)
-  pagamentoConfirmado Boolean        @default(false)
+  dadosPessoaisOk     Boolean  @db.Boolean @default(false)
+  documentosOk        Boolean  @db.Boolean @default(false)
+  responsaveisOk      Boolean  @db.Boolean @default(false)
+  contratoAssinado    Boolean  @db.Boolean @default(false)
+  pagamentoConfirmado Boolean  @db.Boolean @default(false)
 
-  // Relacionamentos
-  alunoId String @unique
+  // Relacionamentos (Removidos os @unique isolados para permitir 1:N real)
+  alunoId String 
   aluno   Aluno  @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 
-  responsavelId String?      @unique
+  responsavelId String?   @unique
   responsavel   Responsavel? @relation(fields: [responsavelId], references: [id], onDelete: Restrict)
 
   turmaId String
@@ -916,7 +918,7 @@ model Matricula {
   escolaId String
   escola   Escola @relation(fields: [escolaId], references: [id], onDelete: Cascade)
 
-  contratoId String? // Gerado ao final da matrícula
+  contratoId String?   @unique // 1 Matrícula = 1 Contrato. Este sim deve ser @unique.
   contrato   Contrato? @relation(fields: [contratoId], references: [id], onDelete: SetNull)
 
   // Observações
@@ -925,7 +927,11 @@ model Matricula {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // TRAVAS DE SEGURANÇA CORRIGIDAS (Chaves compostas)
+  @@unique([numeroMatricula, escolaId]) // Isolamento Tenant
+  @@unique([alunoId, anoLetivo, escolaId]) // Impede que o mesmo aluno tenha 2 matrículas ativas no MESMO ano na MESMA escola
   @@index([escolaId])
+  @@index([responsavelId]) // Adicionado para performance na listagem de dependentes
   @@index([status])
   @@index([anoLetivo])
   @@map("matriculas")

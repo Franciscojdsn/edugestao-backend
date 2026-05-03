@@ -289,4 +289,40 @@ export const atividadeExtraController = {
       total: alunosVinculados.length,
     })
   },
+
+  // GET /atividades/resumo-aluno/:alunoId
+  async getFinanceiroPorAluno(req: Request, res: Response) {
+    // Suporta tanto :alunoId quanto :id na definição da rota
+    const id = req.params.alunoId || req.params.id;
+    const escolaId = req.user?.escolaId;
+
+    if (!id) throw new AppError('Identificação do aluno não fornecida.', 400);
+
+    // Busca direta na tabela de vínculos (alunos_atividades_extra)
+    const vinculos = await prisma.alunoAtividadeExtra.findMany({
+      where: {
+        alunoId: String(id),
+        escolaId,
+        ativo: true
+      },
+      include: {
+        atividadeExtra: { select: { id: true, nome: true, valor: true } }
+      }
+    });
+
+    // Soma os valores das atividades vinculadas
+    const totalSoma = vinculos.reduce((acc, v) => acc + Number(v.atividadeExtra?.valor || 0), 0);
+
+    return res.json({
+      status: 'success',
+      data: {
+        atividades: vinculos.map(v => ({
+          ...v.atividadeExtra,
+          vinculoId: v.id,
+          dataInicio: v.dataInicio
+        })),
+        totalSoma
+      }
+    });
+  },
 }
