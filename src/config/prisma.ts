@@ -68,8 +68,8 @@ export const prisma = prismaBase.$extends({
             args.where = { ...args.where, escolaId };
           }
 
-          // Soft Delete Automático para Alunos (Não traz alunos deletados nas buscas)
-          if (model === 'Aluno' && 'where' in args) {
+          // Soft Delete Automático aprimorado
+          if (['Aluno', 'Boletos', 'Lancamento'].includes(model) && 'where' in args) {
             args.where = { ...args.where, deletedAt: null };
           }
 

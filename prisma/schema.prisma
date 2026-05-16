@@ -288,7 +288,7 @@ model AtividadeExtra {
   valor     Decimal @db.Decimal(10, 2)
 
   diaAula          DiaAula?
-  horario          String?  @db.VarChar(4) // Ex: "14:30" - Bloqueio contra injeção de texto
+  horario          String?  @db.VarChar(5) // Ex: "14:30" - Suporte ao formato HH:MM
   capacidadeMaxima Int?     @db.SmallInt
 
   escolaId String
@@ -360,7 +360,8 @@ model Boletos {
 
   // Datas
   dataVencimento DateTime  @db.Date
-  dataPagamento  DateTime? @db.Date
+  dataPagamento  DateTime? @db.Date // Manter para compatibilidade
+  dataLiquidacao DateTime? @db.Date // Adicionar para padronizar com Lancamento
 
   // Status
   status StatusPagamento @default(PENDENTE)

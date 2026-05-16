@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { dashboardController } from '../controllers/dashboardController'
+import { relatorioController } from '../controllers/relatorioController'
 import { authMiddleware } from '../middlewares/auth'
 import { contextMiddleware } from '../middlewares/contextMiddleware'
 import { validate } from '../middlewares/validate'
@@ -11,7 +12,7 @@ router.use(authMiddleware)
 router.use(contextMiddleware)
 
 // Visão Geral: Faturamento, Total de Alunos e Inadimplência
-router.get('/geral', dashboardController.geral)
+router.get('/geral', relatorioController.financeiro)
 
 // Utilitário: Lista quem faz aniversário no mês selecionado
 router.get(

@@ -10,111 +10,49 @@ export const relatorioController = {
     const escolaId = req.user?.escolaId
     const hoje = new Date()
 
-    let whereData: any = {}
+    const mesAtual = Number(mes) || hoje.getMonth() + 1;
+    const anoAtual = Number(ano) || hoje.getFullYear();
+    const inicioMes = new Date(anoAtual, mesAtual - 1, 1);
+    const fimMes = new Date(anoAtual, mesAtual, 0, 23, 59, 59);
 
-    if (mes && ano) {
-      const dataInicio = new Date(Number(ano), Number(mes) - 1, 1)
-      const dataFim = new Date(Number(ano), Number(mes), 0, 23, 59, 59)
-      whereData = {
-        dataVencimento: { gte: dataInicio, lte: dataFim },
-      }
-    }
-
-    const boletos = await prisma.boletos.findMany({
-      where: {
-        ...whereData,
-        aluno: { escolaId, deletedAt: null },
-        deletedAt: null
-      },
-      select: {
-        status: true,
-        valorTotal: true,
-        valorPago: true,
-        dataVencimento: true,
-      },
-    })
-
-    // 2. [NOVO] Buscar Lançamentos (Entradas Avulsas e Despesas)
-    const lancamentos = await prisma.lancamento.findMany({
-      where: {
-        ...whereData,
-        escolaId,
-        deletedAt: null
-      },
-      select: { tipo: true, status: true, valor: true }
-    })
-
-    const resumoBoletos = boletos.reduce(
-      (acc, boleto) => {
-        const valor = Number(boleto.valorTotal)
-        acc.total++
-        acc.valorGerado += valor
-
-        if (boleto.status === 'PAGO') {
-          acc.qtdPagos++
-          acc.valorRecebido += Number(boleto.valorPago || 0)
-        } else {
-          // PENDENTE ou VENCIDO
-          const vencimento = new Date(boleto.dataVencimento)
-          if (boleto.status === 'VENCIDO' || (boleto.status === 'PENDENTE' && vencimento < hoje)) {
-            acc.qtdVencidos++
-            acc.valorVencido += valor
-          } else {
-            acc.qtdPendentes++
-            acc.valorPendente += valor
-          }
-        }
-        return acc
-      },
-      {
-        total: 0,
-        qtdPagos: 0,
-        qtdPendentes: 0,
-        qtdVencidos: 0,
-        valorGerado: 0,
-        valorRecebido: 0,
-        valorVencido: 0,
-        valorPendente: 0
-      }
-    )
-
-    // 3. [NOVO] Processar Entradas e Saídas Avulsas
-    const fluxoCaixa = lancamentos.reduce((acc, lanc) => {
-      const valor = Number(lanc.valor)
-
-      if (lanc.tipo === 'ENTRADA') {
-        acc.entradasPrevistas += valor
-        if (lanc.status === 'PAGO') acc.entradasRealizadas += valor
-      } else {
-        acc.saidasPrevistas += valor
-        if (lanc.status === 'PAGO') acc.saidasRealizadas += valor
-      }
-      return acc
-    }, { entradasPrevistas: 0, entradasRealizadas: 0, saidasPrevistas: 0, saidasRealizadas: 0 })
+    // Agregações otimizadas com Prisma
+    const [entradasAvulsas, mensalidadesPagas, mensalidadesEsperadas, mensalidadesAno, inadimplentes] = await Promise.all([
+      // receitaRealizadaMes (Lançamentos Avulsos)
+      prisma.lancamento.aggregate({
+        _sum: { valor: true },
+        where: { escolaId, tipo: 'ENTRADA', status: 'PAGO', dataLiquidacao: { gte: inicioMes, lte: fimMes } }
+      }),
+      // receitaRealizadaMes (Boletos/Mensalidades)
+      prisma.boletos.aggregate({
+        _sum: { valorPago: true },
+        where: { escolaId, status: 'PAGO', dataPagamento: { gte: inicioMes, lte: fimMes } } 
+      }),
+      // esperadoMensal
+      prisma.boletos.aggregate({
+        _sum: { valorTotal: true },
+        where: { escolaId, dataVencimento: { gte: inicioMes, lte: fimMes }, status: { not: 'CANCELADO' } }
+      }),
+      // estimadoAnual
+      prisma.boletos.aggregate({
+        _sum: { valorTotal: true },
+        where: { escolaId, dataVencimento: { gte: new Date(anoAtual, 0, 1), lte: new Date(anoAtual, 11, 31) }, status: { not: 'CANCELADO' } }
+      }),
+      // pendentesAtrasados
+      prisma.boletos.aggregate({
+        _sum: { valorTotal: true },
+        // Consideramos boletos vencidos ou pendentes com data menor que hoje
+        where: { escolaId, status: { in: ['PENDENTE', 'VENCIDO'] }, dataVencimento: { lt: hoje } }
+      })
+    ]);
 
     return res.json({
-      periodo: mes && ano ? `${mes}/${ano}` : 'Geral',
-
-      // Detalhe específico das mensalidades (importante para gestão escolar)
-      mensalidades: {
-        gerado: Number(resumoBoletos.valorGerado.toFixed(2)),
-        recebido: Number(resumoBoletos.valorRecebido.toFixed(2)),
-        vencido: Number(resumoBoletos.valorVencido.toFixed(2)),
-        inadimplenciaCount: resumoBoletos.qtdVencidos,
-        taxaRecebimento: resumoBoletos.total > 0 ? ((resumoBoletos.qtdPagos / resumoBoletos.total) * 100).toFixed(1) + '%' : '0%'
-      },
-
-      // [NOVO] Visão Macro do Negócio (DRE Simplificado)
-      balancoGeral: {
-        receitaTotal: Number((resumoBoletos.valorRecebido + fluxoCaixa.entradasRealizadas).toFixed(2)), // O que entrou no banco
-        despesaTotal: Number(fluxoCaixa.saidasRealizadas.toFixed(2)), // O que saiu do banco
-        lucroLiquido: Number(((resumoBoletos.valorRecebido + fluxoCaixa.entradasRealizadas) - fluxoCaixa.saidasRealizadas).toFixed(2)),
-
-        previsaoFechamento: {
-          receitaPotencial: Number((resumoBoletos.valorGerado + fluxoCaixa.entradasPrevistas).toFixed(2)),
-          despesaPrevista: Number(fluxoCaixa.saidasPrevistas.toFixed(2)),
-          saldoProjetado: Number(((resumoBoletos.valorGerado + fluxoCaixa.entradasPrevistas) - fluxoCaixa.saidasPrevistas).toFixed(2))
-        }
+      status: 'success',
+      kpis: {
+        receitaRealizadaMes: (Number(entradasAvulsas._sum.valor) || 0) + (Number(mensalidadesPagas._sum.valorPago) || 0),
+        esperadoMensal: Number(mensalidadesEsperadas._sum.valorTotal) || 0,
+        estimadoAnual: Number(mensalidadesAno._sum.valorTotal) || 0,
+        pendentesAtrasados: Number(inadimplentes._sum.valorTotal) || 0,
+        dataCalculo: new Date().toISOString()
       }
     })
   },
