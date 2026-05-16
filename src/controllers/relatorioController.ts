@@ -9,6 +9,8 @@ export const relatorioController = {
     const { mes, ano } = req.query
     const escolaId = req.user?.escolaId
     const hoje = new Date()
+    // Normaliza para o início do dia para evitar que boletos vencendo hoje sejam considerados atrasados precocemente
+    const hojeInicioDia = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
 
     const mesAtual = Number(mes) || hoje.getMonth() + 1;
     const anoAtual = Number(ano) || hoje.getFullYear();
@@ -16,7 +18,7 @@ export const relatorioController = {
     const fimMes = new Date(anoAtual, mesAtual, 0, 23, 59, 59);
 
     // Agregações otimizadas com Prisma
-    const [entradasAvulsas, mensalidadesPagas, mensalidadesEsperadas, mensalidadesAno, inadimplentes] = await Promise.all([
+    const [entradasAvulsas, mensalidadesPagas, mensalidadesEsperadas, mensalidadesAno, inadimplentes, totalAlunos, totalInadimplentes, aniversariantesData, escola] = await Promise.all([
       // receitaRealizadaMes (Lançamentos Avulsos)
       prisma.lancamento.aggregate({
         _sum: { valor: true },
@@ -25,34 +27,92 @@ export const relatorioController = {
       // receitaRealizadaMes (Boletos/Mensalidades)
       prisma.boletos.aggregate({
         _sum: { valorPago: true },
-        where: { escolaId, status: 'PAGO', dataPagamento: { gte: inicioMes, lte: fimMes } } 
+        where: { escolaId, status: 'PAGO', dataPagamento: { gte: inicioMes, lte: fimMes }, aluno: { deletedAt: null, contrato: { ativo: true } } } 
       }),
-      // esperadoMensal
+      // esperadoMensal (Apenas Boletos PENDENTES de alunos ativos no mês selecionado que ainda NÃO venceram)
       prisma.boletos.aggregate({
         _sum: { valorTotal: true },
-        where: { escolaId, dataVencimento: { gte: inicioMes, lte: fimMes }, status: { not: 'CANCELADO' } }
+        where: { 
+          escolaId, 
+          dataVencimento: { 
+            gte: hojeInicioDia > inicioMes ? hojeInicioDia : inicioMes, 
+            lte: fimMes 
+          }, 
+          status: 'PENDENTE', 
+          aluno: { deletedAt: null, contrato: { ativo: true } } 
+        }
       }),
-      // estimadoAnual
+      // estimadoAnual (Todos os boletos não cancelados do ano para a base de alunos ativos)
       prisma.boletos.aggregate({
         _sum: { valorTotal: true },
-        where: { escolaId, dataVencimento: { gte: new Date(anoAtual, 0, 1), lte: new Date(anoAtual, 11, 31) }, status: { not: 'CANCELADO' } }
+        where: { escolaId, dataVencimento: { gte: new Date(anoAtual, 0, 1), lte: new Date(anoAtual, 11, 31) }, status: { notIn: ['CANCELADO', 'PAGO'] }, aluno: { deletedAt: null, contrato: { ativo: true } } }
       }),
-      // pendentesAtrasados
+      // pendentesAtrasados (Apenas boletos vencidos de alunos atualmente ativos)
       prisma.boletos.aggregate({
         _sum: { valorTotal: true },
-        // Consideramos boletos vencidos ou pendentes com data menor que hoje
-        where: { escolaId, status: { in: ['PENDENTE', 'VENCIDO'] }, dataVencimento: { lt: hoje } }
+        where: { 
+          escolaId, 
+          status: { in: ['PENDENTE', 'VENCIDO'] }, 
+          dataVencimento: { lt: hojeInicioDia },
+          aluno: { deletedAt: null, contrato: { ativo: true } }
+        }
+      }),
+      // 6. Total de Alunos Ativos (Contagem para o Dashboard)
+      prisma.aluno.count({
+        where: { escolaId, contrato: { ativo: true } }
+      }),
+      // 7. Total de Alunos Inadimplentes (Contagem para o Dashboard)
+      prisma.aluno.count({
+        where: { 
+          escolaId, 
+          contrato: { ativo: true }, // Garante que apenas alunos com contrato ativo entrem na contagem
+          boletos: { 
+            some: { 
+              status: { in: ['PENDENTE', 'VENCIDO'] }, 
+              dataVencimento: { lt: hojeInicioDia } 
+            } 
+          } 
+        }
+      }),
+      // 8. Busca datas para cálculo de aniversariantes do mês
+      prisma.aluno.findMany({
+        where: { 
+          escolaId, 
+          contrato: { ativo: true }, // Apenas alunos ativos devem ser considerados para o KPI de aniversariantes
+          dataNascimento: { not: null } 
+        },
+        select: { dataNascimento: true }
+      }),
+      // 9. Informações da Escola
+      prisma.escola.findFirst({
+        where: { id: escolaId },
+        select: { nome: true, cnpj: true }
       })
     ]);
 
+    const totalAniversariantes = aniversariantesData.filter(a => 
+      a.dataNascimento?.getUTCMonth() === hoje.getUTCMonth()
+    ).length;
+
+    const receitaRealizada = (Number(entradasAvulsas._sum.valor) || 0) + (Number(mensalidadesPagas._sum.valorPago) || 0);
+    const valorInadimplenteTotal = Number(inadimplentes._sum.valorTotal) || 0;
+
     return res.json({
       status: 'success',
-      kpis: {
-        receitaRealizadaMes: (Number(entradasAvulsas._sum.valor) || 0) + (Number(mensalidadesPagas._sum.valorPago) || 0),
-        esperadoMensal: Number(mensalidadesEsperadas._sum.valorTotal) || 0,
-        estimadoAnual: Number(mensalidadesAno._sum.valorTotal) || 0,
-        pendentesAtrasados: Number(inadimplentes._sum.valorTotal) || 0,
-        dataCalculo: new Date().toISOString()
+      data: {
+        escola,
+        kpis: {
+          receitaRealizadaMes: receitaRealizada,
+          esperadoMensal: Number(mensalidadesEsperadas._sum.valorTotal) || 0,
+          estimadoAnual: Number(mensalidadesAno._sum.valorTotal) || 0,
+          pendentesAtrasados: valorInadimplenteTotal,
+          totalAlunos,
+          totalInadimplentes,
+          totalAniversariantes,
+          valorInadimplente: valorInadimplenteTotal,
+          faturamentoCiclo: receitaRealizada,
+          dataCalculo: new Date().toISOString()
+        }
       }
     })
   },

@@ -23,21 +23,41 @@ export const alunoController = {
       ];
     }
 
+    const hoje = new Date();
+    const hojeInicioDia = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+
     const [alunos, total] = await Promise.all([
       // O prisma.$extends injetará `escolaId: '...'` automaticamente
       prisma.aluno.findMany({
         where,
         skip,
         take: Number(limit),
-        include: { turma: { select: { nome: true, turno: true } } },
+        include: { 
+          turma: { select: { nome: true, turno: true } },
+          boletos: {
+            where: {
+              status: { in: ['PENDENTE', 'VENCIDO'] },
+              dataVencimento: { lt: hojeInicioDia }
+            },
+            take: 1, // Só precisamos saber se existe ao menos um boleto atrasado
+            select: { id: true }
+          }
+        },
         orderBy: { nome: 'asc' }
       }),
       prisma.aluno.count({ where })
     ]);
 
+    const alunosComStatus = alunos.map(aluno => ({
+      ...aluno,
+      financeiroStatus: aluno.boletos.length > 0 ? 'INADIMPLENTE' : 'EM_DIA',
+      // Removemos a lista de boletos do payload final para economizar banda
+      boletos: undefined
+    }));
+
     return res.json({
       status: 'success',
-      data: alunos,
+      data: alunosComStatus,
       meta: {
         total,
         page: Number(page),
