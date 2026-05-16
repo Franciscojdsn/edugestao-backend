@@ -8,21 +8,31 @@ export const atividadeExtraController = {
   // GET /atividades
   async list(req: Request, res: Response) {
     const escolaId = req.user?.escolaId;
-    const atividades = await prisma.atividadeExtra.findMany({
-      where: { escolaId },
-      select: {
-        id: true,
-        nome: true,
-        descricao: true,
-        valor: true,
-        diaAula: true,
-        horario: true,
-        capacidadeMaxima: true,
-        createdAt: true,
-        _count: { select: { alunos: { where: { ativo: true } } } },
-      },
-      orderBy: { nome: 'asc' },
-    })
+
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    const limitNum = Math.max(1, Number(req.query.limit) || 20);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [atividades, total] = await Promise.all([
+      prisma.atividadeExtra.findMany({
+        where: { escolaId },
+        skip,
+        take: limitNum,
+        select: {
+          id: true,
+          nome: true,
+          descricao: true,
+          valor: true,
+          diaAula: true,
+          horario: true,
+          capacidadeMaxima: true,
+          createdAt: true,
+          _count: { select: { alunos: { where: { ativo: true } } } },
+        },
+        orderBy: { nome: 'asc' },
+      }),
+      prisma.atividadeExtra.count({ where: { escolaId } })
+    ]);
 
     const atividadesComVagas = atividades.map(a => ({
       ...a,
@@ -30,7 +40,16 @@ export const atividadeExtraController = {
       vagasDisponiveis: a.capacidadeMaxima ? Math.max(0, a.capacidadeMaxima - a._count.alunos) : null,
     }))
 
-    return res.json({ status: 'success', data: atividadesComVagas })
+    return res.json({ 
+      status: 'success', 
+      data: atividadesComVagas,
+      meta: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+      }
+    })
   },
 
   // GET /atividades/:id

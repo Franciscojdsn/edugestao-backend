@@ -10,8 +10,14 @@ export const logAuditoriaController = {
    */
   async list(req: Request, res: Response) {
     const escolaId = getRequiredEscolaId();
-    const { page, limit, entidade, acao, usuarioId, dataInicio, dataFim } = req.query as any;
-    const skip = (page - 1) * limit;
+    
+    // Garantia de Tipagem: Query Params chegam como strings no Express.
+    // O Prisma exige que 'skip' e 'take' sejam Numbers inteiros.
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    const limitNum = Math.max(1, Number(req.query.limit) || 20);
+    const skip = (pageNum - 1) * limitNum;
+
+    const { entidade, acao, usuarioId, dataInicio, dataFim } = req.query as any;
 
     // FILTRO MANUAL OBRIGATÓRIO: Este model é ignorado pela extensão
     let where: any = { escolaId };
@@ -35,7 +41,7 @@ export const logAuditoriaController = {
       prisma.logAuditoria.findMany({
         where,
         skip,
-        take: limit,
+        take: limitNum,
         orderBy: { createdAt: 'desc' },
         // PERFORMANCE: Excluímos 'dadosNovos' e 'dadosAntigos' na listagem
         select: {
@@ -56,9 +62,9 @@ export const logAuditoriaController = {
       data: logs,
       meta: {
         total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
       },
     });
   },
