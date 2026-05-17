@@ -18,7 +18,7 @@ export const criarContratoSchema = z.object({
 
     dataInicio: z.coerce.date().optional(),
     status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO', 'FINALIZADO']).default('ATIVO'),
-  }),
+  }).strict(),
 });
 
 export const atualizarContratoSchema = z.object({
@@ -33,7 +33,7 @@ export const atualizarContratoSchema = z.object({
     mesesFaturamento: z.array(z.number().int().min(1).max(12)).optional(),
     status: z.enum(['ATIVO', 'SUSPENSO', 'CANCELADO', 'FINALIZADO']).optional(),
     ativo: z.boolean().optional(),
-  }),
+  }).strict(),
 });
 
 export const listarContratosSchema = z.object({
@@ -51,7 +51,7 @@ export const suspenderContratoSchema = z.object({
   }),
   body: z.object({
     motivo: z.string().min(5, 'O motivo deve ter no mínimo 5 caracteres').max(255).optional(),
-  }),
+  }).strict(),
 });
 
 export const updateFinanceiroSchema = z.object({
@@ -67,5 +67,5 @@ export const updateFinanceiroSchema = z.object({
       atividadeExtraId: z.string().uuid(),
       ativo: z.boolean()
     })).optional()
-  }),
+  }).strict(),
 });
