@@ -1,59 +1,103 @@
-// src/config/prisma.ts
-import { PrismaClient } from '@prisma/client';
-import { requestContext } from '../utils/context';
+import * as dotenv from 'dotenv';
+dotenv.config();
 
-const basePrisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { logger } from '../utils/logger'; // Certifique-se de que este caminho está correto
+import { getEscolaId, requestContext } from '../utils/context'; // Certifique-se de que este caminho está correto
+
+// 1. Usamos a DATABASE_URL (com PgBouncer) para alta concorrência em produção
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("❌ [CRITICAL] DATABASE_URL não encontrada. O arquivo .env não foi carregado corretamente.");
+}
+
+// 2. Configurar o Pool de conexão nativo do PG
+const pool = new Pool({
+  connectionString,
+  // Ativa SSL no Render/Neon, mas desativa no localhost
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-export const prisma = basePrisma.$extends({
+// 3. Criar o Adapter
+const adapter = new PrismaPg(pool);
+
+// 4. Inicializar o Prisma passando o Adapter
+const prismaBase = new PrismaClient({ adapter });
+
+// 5. Extensões e Middlewares de Segurança (Multi-tenant e Auditoria)
+export const prisma = prismaBase.$extends({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
-        const store = requestContext.getStore();
-        const escolaId = store?.escolaId;
+        const escolaId = getEscolaId();
+        const context = requestContext.getStore();
 
-        // Se não houver escolaId no contexto (ex: rotas públicas de login/seed), executa normalmente
-        // Ignora também o próprio modelo de Escola para evitar loops lógicos
-        if (!escolaId || model === 'Escola') {
+        // Tabelas que NÃO possuem escolaId (Exceções do Sistema)
+        const publicModels = ['Escola', 'LogAuditoria'];
+        const isPublicModel = publicModels.includes(model);
+
+        const writeOps = ['create', 'update', 'delete', 'createMany', 'updateMany', 'deleteMany'];
+        const isAuthOperation = model === 'Funcionario' || model === 'Responsavel' || model === 'Aluno';
+
+        // Validação de Segurança Crítica: Tentativa de escrita global sem escolaId
+        if (!isPublicModel && !escolaId && writeOps.includes(operation) && !isAuthOperation) {
+          const errorMsg = `Tentativa de escrita global não permitida: ${operation} em ${model} sem escolaId.`;
+
+          await logger.critical(errorMsg, {
+            model,
+            operation,
+            userId: context?.userId,
+            args: (args as any).where || (args as any).data
+          });
+
+          throw new Error(`[CRITICAL SECURITY] ${errorMsg}`);
+        }
+
+        // Se for um modelo global, executa sem injetar escolaId
+        if (isPublicModel) {
           return query(args);
         }
 
-        const anyArgs = args as any;
+        // Injeção de Segurança para Multi-tenancy
+        if (escolaId) {
+          // Filtro Global de Multi-tenancy (Adiciona escolaId ao WHERE)
+          if ('where' in args) {
+            args.where = { ...args.where, escolaId };
+          }
 
-        // 1. Injeção forçada de filtro em operações de leitura e mutação direcionada
-        if ([
-          'findFirst', 'findFirstOrThrow', 'findMany', 'count', 
-          'update', 'updateMany', 'delete', 'deleteMany', 'upsert'
-        ].includes(operation)) {
-          anyArgs.where = {
-            ...anyArgs.where,
-            escolaId,
-            // Evita bypass via soft delete implicitamente se implementado globalmente
-            deletedAt: null 
-          };
-        }
+          // Soft Delete Automático aprimorado
+          if (['Aluno', 'Boletos', 'Lancamento'].includes(model) && 'where' in args) {
+            args.where = { ...args.where, deletedAt: null };
+          }
 
-        // 2. Injeção forçada de propriedade na criação de registros
-        if (operation === 'create') {
-          anyArgs.data = {
-            ...anyArgs.data,
-            escolaId
-          };
-        }
-
-        if (operation === 'createMany') {
-          if (Array.isArray(anyArgs.data)) {
-            anyArgs.data = anyArgs.data.map((item: any) => ({
-              ...item,
-              escolaId
-            }));
-          } else if (anyArgs.data) {
-            anyArgs.data = { ...anyArgs.data, escolaId };
+          // Auto-injeção no Create (Garante que todo registro nasce no tenant certo)
+          if (operation === 'create' && args.data && !(args.data as any).escolaId) {
+            (args.data as any).escolaId = escolaId;
+          }
+          if (operation === 'createMany' && Array.isArray(args.data)) {
+            (args as any).data = args.data.map(item => ({ ...item, escolaId }));
           }
         }
 
-        return query(anyArgs);
+        // Executa a Query Real
+        const result = await query(args);
+
+        // Auditoria pós-execução para operações de escrita
+        if (writeOps.includes(operation) && escolaId && !isPublicModel) {
+          logger.audit({
+            entidade: model,
+            acao: operation.toUpperCase(),
+            entidadeId: (result as any)?.id || 'N/A',
+            escolaId,
+            usuarioId: context?.userId,
+            dadosNovos: (args as any).data
+          });
+        }
+
+        return result;
       }
     }
   }
