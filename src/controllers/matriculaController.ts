@@ -66,6 +66,7 @@ export const matriculaController = {
           cpf: dados.cpf ? dados.cpf.replace(/\D/g, "") : null,
           dataNascimento: new Date(dados.dataNascimento),
           genero: dados.genero,
+          naturalidade: dados.naturalidade?.trim() || null,
           numeroMatricula,
           turmaId: dados.turmaId,
           enderecoId: novoEndereco.id,
@@ -75,6 +76,7 @@ export const matriculaController = {
           planoSaude: Boolean(dados.planoSaude),
           hospital: dados.hospital?.trim() || null,
           alergias: dados.alergias?.trim() || null,
+          medicamentos: dados.medicamentos?.trim() || null,
         }
       });
 

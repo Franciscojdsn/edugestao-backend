@@ -9,7 +9,14 @@ export const iniciarMatriculaSchema = z.object({
     // Dados do Aluno
     nomeAluno: z.string().min(3, "Nome muito curto").max(100, "Nome muito longo").trim(),
     cpf: z.string().transform(normalize).refine(v => v.length === 11 || v === '', "CPF inválido").optional().nullable(),
-    dataNascimento: z.coerce.date({ error: "Data obrigatória" })
+    dataNascimento: z.preprocess((val) => {
+      if (typeof val === 'string' && val.includes('/')) {
+        const [d, m, y] = val.split('/');
+        // Converte para YYYY-MM-DD para o construtor Date não se confundir com locale
+        return `${y}-${m}-${d}`;
+      }
+      return val;
+    }, z.coerce.date({ error: "Data obrigatória" }))
       .refine(date => {
         const maxAllowed = new Date(new Date().getFullYear() - 1, 11, 31);
         return date <= maxAllowed;

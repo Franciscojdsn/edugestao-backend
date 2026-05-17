@@ -52,6 +52,7 @@ export const turmaController = {
       where: { id: String(id) },
       include: {
         turmaProfessors: { include: { professor: true } },
+        alunos: { where: { deletedAt: null } },
         _count: { select: { alunos: { where: { deletedAt: null } } } }
       }
     });
@@ -115,7 +116,7 @@ export const turmaController = {
   async update(req: Request, res: Response) {
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const dados = req.body;
+    const { professorResponsavelId, ...dados } = req.body;
 
     const turma = await prisma.turma.findFirst({
       where: { id: String(id) },
@@ -129,12 +130,40 @@ export const turmaController = {
       throw new AppError(`Operação bloqueada. A turma já possui ${turma._count.alunos} alunos.`, 400);
     }
 
-    const atualizada = await prisma.turma.update({
-      where: { id: String(id) },
-      data: dados
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Atualiza os dados básicos da turma
+      const turmaAtualizada = await tx.turma.update({
+        where: { id: String(id) },
+        data: dados
+      });
+
+      // 2. Atualiza ou cria o vínculo com o professor principal
+      if (professorResponsavelId) {
+        const vinculoExistente = await tx.turmaProfessor.findFirst({
+          where: { turmaId: String(id), isPrincipal: true }
+        });
+
+        if (vinculoExistente) {
+          await tx.turmaProfessor.update({
+            where: { id: vinculoExistente.id },
+            data: { professorId: professorResponsavelId }
+          });
+        } else {
+          await tx.turmaProfessor.create({
+            data: {
+              turmaId: String(id),
+              professorId: professorResponsavelId,
+              isPrincipal: true,
+              escolaId: req.user?.escolaId as string
+            }
+          });
+        }
+      }
+
+      return turmaAtualizada;
     });
 
-    return res.json({ status: 'success', data: atualizada });
+    return res.json({ status: 'success', data: resultado });
   },
 
   /**

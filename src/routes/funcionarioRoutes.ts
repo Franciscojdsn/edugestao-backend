@@ -8,6 +8,7 @@ import {
   listarFuncionariosSchema,
   registrarPagamentoSchema,
   idFuncionarioSchema,
+  atualizarFuncionarioSchema,
 } from '../schemas/funcionarioSchemas'
 
 const router = Router()
@@ -37,6 +38,11 @@ router.get(
  * GET /funcionarios/:id
  * Busca funcionário por ID
  */
+router.get(
+  '/:id',
+  validate(idFuncionarioSchema),
+  funcionarioController.getById
+)
 
 
 /**
@@ -63,6 +69,11 @@ router.post(
  * PUT /funcionarios/:id
  * Atualiza funcionário
  */
+router.put(
+  '/:id',
+  validate(atualizarFuncionarioSchema),
+  funcionarioController.update
+)
 
 
 /**

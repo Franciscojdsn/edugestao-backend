@@ -97,15 +97,52 @@ export const alunoController = {
    */
   async update(req: Request, res: Response) {
     const { id } = req.params;
-    const idFormatado = Array.isArray(id) ? id[0] : id;
-    const dados = req.body; // Já validado pelo atualizarAlunoSchema
+    const idFormatado = String(id);
+    
+    // Destruturamos apenas os campos que pertencem ao modelo Aluno
+    // E capturamos os campos de endereço que o frontend também envia
+    const {
+      nome, cpf, dataNascimento, naturalidade, genero,
+      numeroMatricula, numeroSus, planoSaude, hospital, alergias,
+      turmaId,
+      cep, logradouro, numero, complemento, bairro, cidade, estado
+    } = req.body;
 
     const alunoExistente = await prisma.aluno.findFirst({ where: { id: idFormatado } });
     if (!alunoExistente) throw new AppError('Aluno não encontrado.', 404);
 
+    // 1. Atualização do Endereço (se houver dados de endereço no payload)
+    if (alunoExistente.enderecoId && (cep || logradouro || bairro)) {
+      await prisma.endereco.update({
+        where: { id: alunoExistente.enderecoId },
+        data: {
+          cep,
+          rua: logradouro, // Mapeamos 'logradouro' do front para 'rua' no banco
+          numero,
+          complemento,
+          bairro,
+          cidade,
+          estado
+        }
+      });
+    }
+
+    // 2. Atualização do Aluno com data convertida e campos filtrados
     const alunoAtualizado = await prisma.aluno.update({
       where: { id: idFormatado },
-      data: dados // Dados já limpos e no limite de caracteres pelo Zod
+      data: {
+        nome,
+        cpf,
+        dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
+        naturalidade,
+        genero,
+        numeroMatricula,
+        numeroSus,
+        planoSaude,
+        hospital,
+        alergias,
+        turmaId: turmaId || null
+      }
     });
 
     return res.json({

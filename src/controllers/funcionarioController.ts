@@ -35,6 +35,29 @@ export const funcionarioController = {
   },
 
   /**
+   * GET /funcionarios/:id
+   */
+  async getById(req: Request, res: Response) {
+    const { id } = req.params;
+    const idFormatado = Array.isArray(id) ? id[0] : id;
+
+    const funcionario = await prisma.funcionario.findFirst({
+      where: { id: idFormatado },
+      include: {
+        endereco: true,
+        dadosBancarios: true,
+        pagamentoSalarios: {
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!funcionario) throw new AppError('Funcionário não encontrado', 404);
+
+    return res.json({ status: 'success', data: funcionario });
+  },
+
+  /**
    * POST /funcionarios
    */
   async create(req: Request, res: Response) {
@@ -130,6 +153,48 @@ export const funcionarioController = {
     });
 
     return res.status(201).json({ status: 'success', data: resultado });
+  },
+
+  /**
+   * PUT /funcionarios/:id
+   */
+  async update(req: Request, res: Response) {
+    const { id } = req.params;
+    const idFormatado = Array.isArray(id) ? id[0] : id;
+    const dados = req.body;
+
+    const funcionarioExistente = await prisma.funcionario.findFirst({
+      where: { id: idFormatado }
+    });
+
+    if (!funcionarioExistente) throw new AppError('Funcionário não encontrado', 404);
+
+    const funcionario = await prisma.funcionario.update({
+      where: { id: idFormatado },
+      data: {
+        nome: dados.nome,
+        rg: dados.rg,
+        dataNascimento: dados.dataNascimento,
+        cargo: dados.cargo,
+        salarioBase: dados.salarioBase,
+        telefone: dados.telefone,
+        email: dados.email,
+        statusFuncionario: dados.statusFuncionario,
+        // Upsert para dados bancários
+        dadosBancarios: dados.dadosBancarios ? {
+          upsert: {
+            create: { ...dados.dadosBancarios, escolaId: req.user?.escolaId },
+            update: dados.dadosBancarios
+          }
+        } : undefined
+      },
+      include: { 
+        dadosBancarios: true, 
+        endereco: true 
+      }
+    });
+
+    return res.json({ status: 'success', data: funcionario });
   },
 
   /**
